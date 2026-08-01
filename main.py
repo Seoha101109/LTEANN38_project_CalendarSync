@@ -464,25 +464,45 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             extracted_data_list = await asyncio.gather(*msg_tasks)
 
             # 💡 [핵심 수정] 추출된 데이터 리스트 순회
+            # 추출된 데이터 리스트 순회 및 저장
             for extracted_data in extracted_data_list:
-                if not extracted_data:
+                if not extracted_data or isinstance(extracted_data, Exception):
                     continue
 
-                if extracted_data.has_schedule and extracted_data.schedules:
-                    for schedule_item in extracted_data.schedules:
-                        if schedule_item.confidence >= LLM_CONFIDENCE_THRESHOLD:
-                            is_grade_matching = (
-                                schedule_item.is_for_all_grades
-                                or (user_grade in schedule_item.target_grades)
-                            )
+                # 1. 일정 포함 여부 체크
+                if not (extracted_data.has_schedule and extracted_data.schedules):
+                    logger.debug("👉 [디버그] 메시지에 일정 정보가 없음 (has_schedule=False)")
+                    continue
 
-                            if is_grade_matching:
-                                schedule_dict = schedule_item.model_dump()
-                                schedule_dict["source"] = extracted_data.source
+                for schedule_item in extracted_data.schedules:
+                    # 2. 신뢰도 체크
+                    if schedule_item.confidence < LLM_CONFIDENCE_THRESHOLD:
+                        logger.warning(
+                            f"⚠️ [디버그] 신뢰도 미달로 스킵: {schedule_item.confidence} (기준: {LLM_CONFIDENCE_THRESHOLD})"
+                        )
+                        continue
 
-                                add_notice_to_calendar(target_email, schedule_dict)
-                                
-                                written_count += 1
+                    # 3. 학년 매칭 체크
+                    is_grade_matching = (
+                        schedule_item.is_for_all_grades
+                        or (user_grade in schedule_item.target_grades)
+                    )
+                    if not is_grade_matching:
+                        logger.warning(
+                            f"⚠️ [디버그] 학년 불일치로 스킵: 타겟({schedule_item.target_grades}) vs 유저({user_grade})"
+                        )
+                        continue
+
+                    # 4. 등록 시도
+                    schedule_dict = schedule_item.model_dump()
+                    schedule_dict["source"] = extracted_data.source
+
+                    try:
+                        add_notice_to_calendar(target_email, schedule_dict)
+                        channel_written += 1
+                        logger.info(f"✅ [디버그] 캘린더 등록 성공: {schedule_item.title}")
+                    except Exception as cal_err:
+                        logger.error(f"❌ [디버그] add_notice_to_calendar 실행 중 예외 발생: {cal_err}", exc_info=True)
 
 
         # ------------------------------------------------------------------
