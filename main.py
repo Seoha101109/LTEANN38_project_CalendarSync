@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import asyncio
 import time
-import tiktoken
+
 from contextlib import asynccontextmanager
 import httpx
 from dotenv import load_dotenv
@@ -71,111 +71,9 @@ client = AsyncOpenAI(
     )
 scheduler = AsyncIOScheduler()
 
-# GPT-4o / GPT-4o-mini 인코더 로드
-encoding = tiktoken.encoding_for_model("gpt-4o-mini")
-
-# -----------------------------------------------------------------
-# tpm 억제 파이프라인
-# -----------------------------------------------------------------
-def count_tokens(text: str) -> int:
-    """메시지의 실제 토큰 수를 사전 계산하는 함수"""
-    if not text:
-        return 0
-    return len(encoding.encode(text))
-
-class GlobalOpenAIPipeline:
-    """전체 앱에서 단 1개만 실행되며, OpenAI API 호출 속도를 총괄하는 클래스"""
-    def __init__(self, client, max_tpm: int = 150000):
-        self.client = client
-        self.max_tpm = max_tpm
-        self.queue: asyncio.Queue = asyncio.Queue()
-        self.used_tokens = 0
-        self.window_start = time.time()
-        self.worker_task = None
-
-    async def start(self):
-        """백그라운드 Worker 시작"""
-        self.worker_task = asyncio.create_task(self._worker())
-
-    async def stop(self):
-        """Worker 안전 중지"""
-        if self.worker_task:
-            await self.queue.put(None)
-            await self.worker_task
-
-    async def _wait_for_tpm(self, estimated_tokens: int):
-        now = time.time()
-        # 60초가 지나면 윈도우 리셋
-        if now - self.window_start >= 60:
-            self.used_tokens = 0
-            self.window_start = now
-
-        # 하드캡(Cap) 안전장치: 요청 1개당 토큰은 최대 4,000T로 제한 (오계산 방지)
-        safe_tokens = min(estimated_tokens, 4000)
-
-        # 15.5만 TPM 초과 시 대기
-        while self.used_tokens + safe_tokens > self.max_tpm:
-            sleep_time = 60 - (now - self.window_start)
-            if sleep_time > 0:
-                print(f"⏳ [중앙통제] TPM 한도 도달 ({self.used_tokens}/{self.max_tpm}T). {sleep_time:.1f}초 대기...")
-                await asyncio.sleep(max(sleep_time, 1.0))
-            
-            now = time.time()
-            if now - self.window_start >= 60:
-                self.used_tokens = 0
-                self.window_start = now
-
-        self.used_tokens += safe_tokens
-
-    async def _worker(self):
-        """Queue에서 일거리를 하나씩 빼내 순차적으로 API를 호출하는 단 1명의 일꾼"""
-        while True:
-            item = await self.queue.get()
-            if item is None:
-                self.queue.task_done()
-                break
-
-            system_prompt, user_content, response_format, estimated_tokens, response_future = item
-
-            try:
-                # 1. 속도 검문
-                await self._wait_for_tpm(estimated_tokens)
-
-                # 2. OpenAI API 호출
-                completion = await self.client.beta.chat.completions.parse(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content}
-                    ],
-                    response_format=response_format,
-                    temperature=0,
-                )
-
-                parsed_result = completion.choices[0].message.parsed
-                response_future.set_result(parsed_result)
-
-            except Exception as e:
-                response_future.set_exception(e)
-            finally:
-                self.queue.task_done()
-
-    async def request_parse(self, system_prompt: str, user_content: list, response_format: type, estimated_tokens: int):
-        """외부 Task가 요청을 던지는 창구"""
-        loop = asyncio.get_running_loop()
-        response_future = loop.create_future()
-
-        await self.queue.put((system_prompt, user_content, response_format, estimated_tokens, response_future))
-        return await response_future
-
-# 글로벌 컨트롤러 생성
-pipeline = GlobalOpenAIPipeline(client, max_tpm=150000)
-
 #FastAPI app
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ================= [STARTUP] =================
-    # 1. 크론 스케줄러 작업 등록
     scheduler.add_job(
         auto_polling_sync_job, 
         'cron', 
@@ -191,21 +89,12 @@ async def lifespan(app: FastAPI):
         misfire_grace_time=3600,
         coalesce=True
     )
-    
-    # 2. 스케줄러 및 OpenAI 파이프라인 시작
-    scheduler.start()        # 💡 await 없이 실행 (APScheduler 기준)
-    await pipeline.start()   # 💡 pipeline은 async 메서드이므로 await 필수
-    
-    print("🟢 [Lifespan] 스케줄러 및 OpenAI 파이프라인 가동 완료")
+    scheduler.start()
 
     yield  # <-- 서버가 정상 구동되는 시점
 
-    # ================= [SHUTDOWN] =================
-    # 3. 역순으로 정리 및 종료
-    scheduler.shutdown()     # 💡 shutdown도 보통 동기 메서드 (필요시 wait=False)
-    await pipeline.stop()    # 💡 Worker 안전 종료
-    
-    print("🔴 [Lifespan] 모든 백그라운드 서비스가 안전하게 종료되었습니다.")
+    scheduler.shutdown()
+
 
 app = FastAPI(title="Teams Calendar Auto-Polling & Extract API", lifespan=lifespan)
 
@@ -441,26 +330,22 @@ async def analyze_message_with_gpt(
 """
 
     user_content = [{"type": "text", "text": user_text_prompt}]
-    for b64_img in image_base64_list:
-        user_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{b64_img}", "detail": "auto"}
-        })
+    # for b64_img in image_base64_list:
+    #     user_content.append({
+    #         "type": "image_url",
+    #         "image_url": {"url": f"data:image/png;base64,{b64_img}", "detail": "auto"}
+    #     })
     
-    #조립 완료된 최종 텍스트의 토큰을 정확히 측정
-    text_tokens = count_tokens(system_prompt) + count_tokens(user_text_prompt)
-    image_tokens = len(image_base64_list) * 1200
-    input_tokens = text_tokens + image_tokens
-    total_estimated_tokens = input_tokens + 1000
-    
-    completion = await pipeline.request_parse(
-        system_prompt=system_prompt,
-        user_content=user_content,
-        response_format=ExtractedSchedule,
-        estimated_tokens=total_estimated_tokens
+    completion = await client.beta.chat.completions.parse(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ],
+        temperature=0
     )
         
-    return completion
+    return completion.choices[0].message.parsed
 
 
 # ------------------------------------------------------------------
@@ -528,7 +413,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         written_count = 0
 
         # 1. 💡 세마포어를 최외각에 선언 (전체 작업 중 동시에 날아가는 GPT 요청을 5개로 제한)
-        gpt_semaphore = asyncio.Semaphore(3)
+        gpt_semaphore = asyncio.Semaphore(5)
             
         # 2. 메시지 1개를 처리하는 내부 비동기 함수
         async def analyze_single_message(msg):
@@ -539,7 +424,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                         graph_access_token=access_token,
                         target_user_name=target_user_name
                         )
-                    #await asyncio.sleep(1.5)
+                    await asyncio.sleep(1.5)
                     return result
             except Exception as e:
                 logger.error(
