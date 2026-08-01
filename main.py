@@ -375,18 +375,14 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                 target_email = pdata.get("mail") or pdata.get("userPrincipalName")
                 target_user_name = pdata.get("displayName")
 
-        # 🎯 [이메일 기반 동적 학년 계산]
         calculated_grade = calculate_grade_from_email(target_email, now_utc.year)
-        
-        # DB에 지정된 학년이 우선 적용되며, 없으면 이메일로 추출한 학년, 둘 다 없으면 기본값 적용
         user_grade = getattr(user, "grade", None) or calculated_grade or DEFAULT_USER_GRADE
 
-        # DB에 학년 정보가 비어있다면 자동 계산된 학년으로 갱신
         if getattr(user, "grade", None) is None and calculated_grade:
             user.grade = calculated_grade
             db.commit()
 
-        logger.info(f"👤 [Sync 시작] User({anon_user_id})")
+        logger.info(f"👤 [Sync 시작] User({anon_user_id}), 학년: {user_grade}")
         
         last_log = (
             db.query(models.CalendarEventLog)
@@ -410,12 +406,8 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         if not user_channels:
             return 0
 
-        written_count = 0
-
-        # 1. 💡 세마포어를 최외각에 선언 (전체 작업 중 동시에 날아가는 GPT 요청을 5개로 제한)
         gpt_semaphore = asyncio.Semaphore(5)
             
-        # 2. 메시지 1개를 처리하는 내부 비동기 함수
         async def analyze_single_message(msg):
             try:
                 async with gpt_semaphore:
@@ -423,93 +415,85 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                         message_payload=msg,
                         graph_access_token=access_token,
                         target_user_name=target_user_name
-                        )
+                    )
                     await asyncio.sleep(1.5)
                     return result
             except Exception as e:
-                logger.error(
-                    f"메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}"
-                )
+                logger.error(f"❌ 메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
                 return None
 
-
-        # 3. 채널 1개를 처리하는 비동기 함수 (채널 병렬화용)
-        async def process_channel(ch):
-            nonlocal written_count
+        # 3. 채널 1개를 처리하는 비동기 함수 (개수 Return 구조로 변경)
+        async def process_channel(ch) -> int:
+            channel_written = 0
             
-            # 채널 내 메시지 가져오기 (동기/비동기 여부에 따라 처리)
-            raw_messages = channel_export(ch["team_id"], ch["channel_id"])
+            # 🚨 [수정 1] 동기 함수를 안전하게 비동기 스레드로 실행하여 이벤트 루프 차단 방지
+            raw_messages = await asyncio.to_thread(channel_export, ch["team_id"], ch["channel_id"])
             if not raw_messages:
-                return
+                return 0
 
             new_messages = []
             for msg in raw_messages:
                 created_str = msg.get("createdDateTime")
                 if created_str:
-                    msg_time = datetime.fromisoformat(
-                        created_str.replace("Z", "+00:00")
-                    )
+                    msg_time = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
                     if msg_time > last_sync_time:
                         new_messages.append(msg)
 
             if not new_messages:
-                return
+                return 0
 
-            logger.info(
-                f" User({anon_user_id}) 신규 메시지 {len(new_messages)}개 발견, 분석 시작..."
-            )
+            logger.info(f"📩 User({anon_user_id}) 채널({ch.get('channel_name', '알수없음')}) 신규 메시지 {len(new_messages)}개 발견! 분석 시작...")
 
-            # 채널 내부 메시지 병렬 실행
             msg_tasks = [analyze_single_message(msg) for msg in new_messages]
-            extracted_data_list = await asyncio.gather(*msg_tasks)
+            
+            # 🚨 [수정 2] return_exceptions=True 적용하여 1개 실패해도 전체가 멈추지 않도록 설정
+            extracted_data_list = await asyncio.gather(*msg_tasks, return_exceptions=True)
 
-            # 💡 [핵심 수정] 추출된 데이터 리스트 순회
-            # 추출된 데이터 리스트 순회 및 저장
-            for extracted_data in extracted_data_list:
+            logger.info(f"🔍 [디버그] LLM 응답 수신완료: 총 {len(extracted_data_list)}개 객체")
+
+            for idx, extracted_data in enumerate(extracted_data_list):
+                # 🚨 [수정 3] debug -> info로 변경하여 강제 출력
                 if not extracted_data or isinstance(extracted_data, Exception):
+                    logger.info(f"👉 [{idx+1}번 메시지 스킵] LLM 응답 없음 또는 예외 발생: {extracted_data}")
                     continue
 
-                # 1. 일정 포함 여부 체크
-                if not (extracted_data.has_schedule and extracted_data.schedules):
-                    logger.debug("👉 [디버그] 메시지에 일정 정보가 없음 (has_schedule=False)")
+                if not (getattr(extracted_data, 'has_schedule', False) and getattr(extracted_data, 'schedules', [])):
+                    logger.info(f"👉 [{idx+1}번 메시지 탈락] 일정 없음 (has_schedule=False)")
                     continue
 
                 for schedule_item in extracted_data.schedules:
-                    # 2. 신뢰도 체크
                     if schedule_item.confidence < LLM_CONFIDENCE_THRESHOLD:
-                        logger.warning(
-                            f"⚠️ [디버그] 신뢰도 미달로 스킵: {schedule_item.confidence} (기준: {LLM_CONFIDENCE_THRESHOLD})"
-                        )
+                        logger.info(f"⚠️ [{idx+1}번 메시지 탈락] 신뢰도 미달: {schedule_item.confidence} < {LLM_CONFIDENCE_THRESHOLD}")
                         continue
 
-                    # 3. 학년 매칭 체크
                     is_grade_matching = (
                         schedule_item.is_for_all_grades
                         or (user_grade in schedule_item.target_grades)
                     )
                     if not is_grade_matching:
-                        logger.warning(
-                            f"⚠️ [디버그] 학년 불일치로 스킵: 타겟({schedule_item.target_grades}) vs 유저({user_grade})"
-                        )
+                        logger.info(f"⚠️ [{idx+1}번 메시지 탈락] 학년 불일치: 타겟({schedule_item.target_grades}) vs 유저({user_grade})")
                         continue
 
-                    # 4. 등록 시도
                     schedule_dict = schedule_item.model_dump()
                     schedule_dict["source"] = extracted_data.source
 
                     try:
                         add_notice_to_calendar(target_email, schedule_dict)
                         channel_written += 1
-                        logger.info(f"✅ [디버그] 캘린더 등록 성공: {schedule_item.title}")
+                        logger.info(f"✅ [{idx+1}번 메시지 성공] 캘린더 등록 완료: {schedule_item.title}")
                     except Exception as cal_err:
-                        logger.error(f"❌ [디버그] add_notice_to_calendar 실행 중 예외 발생: {cal_err}", exc_info=True)
+                        logger.error(f"❌ [{idx+1}번 메시지 실패] add_notice_to_calendar 예외: {cal_err}", exc_info=True)
 
+            return channel_written
 
         # ------------------------------------------------------------------
-        # 4. 🚀 메인 실행부: 모든 채널을 동시(병렬) 처리
+        # 4. 메인 실행부: 결과 안전하게 합산
         # ------------------------------------------------------------------
         channel_tasks = [process_channel(ch) for ch in user_channels]
-        await asyncio.gather(*channel_tasks)
+        results = await asyncio.gather(*channel_tasks, return_exceptions=True)
+
+        # 예외 객체를 제외하고 숫자만 합산
+        written_count = sum(r for r in results if isinstance(r, int))
 
         log_entry = models.CalendarEventLog(
             user_id=anon_user_id,
@@ -529,7 +513,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         return 0
     finally:
         db.close()
-
+        
 # ------------------------------------------------------------------
 # [FastAPI Router & Scheduler Tasks]
 # ------------------------------------------------------------------
