@@ -83,35 +83,47 @@ def count_tokens(text: str) -> int:
 
 
 class RateLimiter:
-    """분당 토큰(TPM) 및 분당 요청(RPM)을 사전에 미리 계산해서 제어하는 클래스"""
-    def __init__(self, max_tpm=180000, max_rpm=400):
-        self.max_tpm = max_tpm  # 안전하게 20만 제한 중 18만으로 잡음
+    def __init__(self, max_tpm=160000, max_rpm=400, min_interval=0.2):
+        self.max_tpm = max_tpm          # 안전하게 15만으로 설정
         self.max_rpm = max_rpm
+        self.min_interval = min_interval # 💡 요청 간 최소 간격 (0.15초)
         
-        self.token_history = []  # (timestamp, token_count)
-        self.request_history = [] # [timestamp, ...]
+        self.token_history = []
+        self.request_history = []
+        self.last_request_time = 0.0    # 마지막으로 요청이 통과한 시간
         self.lock = asyncio.Lock()
 
     async def wait_for_capacity(self, estimated_tokens: int):
-        """요청을 보내기 전, TPM/RPM 한도 내에 들어올 때까지 대기(미루기)시키는 핵심 함수"""
-        async with self.lock:
+        async with self.lock: # 🔒 한 번에 하나의 코루틴만 지나감
             while True:
                 now = time.time()
                 one_minute_ago = now - 60.0
 
-                # 60초가 지난 과거 기록들은 삭제
+                # 1. 60초 지난 과거 기록 정원 정리
                 self.token_history = [item for item in self.token_history if item[0] > one_minute_ago]
                 self.request_history = [t for t in self.request_history if t > one_minute_ago]
 
-                # 현재 최근 1분간 사용된 토큰 총합 계산
                 current_tpm = sum(item[1] for item in self.token_history)
                 current_rpm = len(self.request_history)
 
-                # 한도를 초과하지 않는지 체크
+                # 2. 💡 요청 사이의 연사 방지 (Throttling)
+                time_since_last = now - self.last_request_time
+                if time_since_last < self.min_interval:
+                    # 너무 촘촘하게 들어오면 최소 간격만큼 대기
+                    await asyncio.sleep(self.min_interval - time_since_last)
+                    now = time.time() # 시간 갱신
+
+                # 3. TPM 및 RPM 용량 체크
                 if (current_tpm + estimated_tokens <= self.max_tpm) and (current_rpm + 1 <= self.max_rpm):
-                    # 승인! 기록에 추가하고 바로 출발
+                    # 승인!
                     self.token_history.append((now, estimated_tokens))
                     self.request_history.append(now)
+                    self.last_request_time = now # 💡 마지막 통과 시간 기록
+                    
+                    logger.info(
+                        f"🟢 [RateLimiter 승인] 예상: {estimated_tokens}T | "
+                        f"현재 1분 사용량: {current_tpm + estimated_tokens}/{self.max_tpm}T"
+                    )
                     return
 
                 # 한도 초과 위험 시: 가장 오래된 기록이 60초 지날 때까지 잠시 대기 (Sleep)
@@ -120,7 +132,7 @@ class RateLimiter:
                 await asyncio.sleep(sleep_time)
 
 # 글로벌 컨트롤러 생성
-rate_limiter = RateLimiter(max_tpm=180000, max_rpm=450) # 내 TPM 제한에 맞게 설정
+rate_limiter = RateLimiter() # 내 TPM 제한에 맞게 설정
 
 # ------------------------------------------------------------------
 # [Helper] 이메일 앞 2자리 추출을 통한 학년 자동 계산 함수
