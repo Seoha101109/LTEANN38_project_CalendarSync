@@ -1,0 +1,12 @@
+pip
+beautifulsoup4
+fastapi
+openai
+msal
+pydantic
+python-dotenv
+requests
+uvicorn
+sqlalchemy
+psycopg2-binary
+apscheduler
