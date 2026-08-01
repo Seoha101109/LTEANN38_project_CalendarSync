@@ -16,7 +16,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bs4 import BeautifulSoup
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 import database
 import models
@@ -63,7 +63,7 @@ database.Base.metadata.create_all(bind=engine)
 RECENT_SYNC_REQUESTS = {}
 
 app = FastAPI(title="Teams Calendar Auto-Polling & Extract API")
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 scheduler = AsyncIOScheduler()
 
 # ------------------------------------------------------------------
