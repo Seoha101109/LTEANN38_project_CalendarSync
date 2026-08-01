@@ -26,3 +26,5 @@ class User(Base):
     user_id = Column(String, unique=True, index=True)  # Teams / Azure AAD Object ID
     grade = Column(Integer, nullable=True)     # 공지 필터링용 학년 정보 (개인 식별 불가능한 일반 서비스 데이터)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    conversation_id = Column(String, unique=True, index=True)
+    service_url = Column(String, nullable=True)

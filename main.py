@@ -495,7 +495,10 @@ async def teams_event_webhook(
     if (activity_type == "installationUpdate" and data.get("action") == "add") or (activity_type == "conversationUpdate" and data.get("membersAdded")):
         from_user = data.get("from", {})
         user_id = from_user.get("aadObjectId") or from_user.get("id")
-
+        user_conversation = data.get("conversation") or {}
+        user_conversation_id = user_conversation.get("id")
+        service_url = data.get("serviceUrl")
+        
         if user_id:
             anon_user_id = get_anonymous_id(user_id)
             now = datetime.now(timezone.utc).timestamp()
@@ -509,10 +512,14 @@ async def teams_event_webhook(
             existing_user = db.query(models.User).filter(models.User.user_id == user_id).first()
 
             if not existing_user:
-                new_user = models.User(user_id=user_id)
+                new_user = models.User(user_id=user_id, conversation_id=user_conversation_id, service_url=service_url)
                 db.add(new_user)
                 logger.info(f"🎉 신규 설치 감지: User({anon_user_id}) 등록 완료")
             else:
+                if user_conversation_id:
+                    existing_user.conversation_id = user_conversation_id
+                if service_url:
+                    existing_user.service_url = service_url
                 logger.info(f"🔄 앱 재설치 감지: User({anon_user_id})")
 
             install_log = models.CalendarEventLog(
