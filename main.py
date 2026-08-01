@@ -410,7 +410,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         async def analyze_single_message(msg):
             try:
                 async with gpt_semaphore:
-                    result = call_gpt_with_retry(msg, access_token, target_user_name)
+                    result = await call_gpt_with_retry(msg, access_token, target_user_name)
                     await asyncio.sleep(0.2)
                     return result
             except Exception as e:
