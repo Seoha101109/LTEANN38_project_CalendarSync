@@ -395,7 +395,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
 
         @retry(
             retry=retry_if_exception_type(RateLimitError), # 1. 언제 재시도할까? -> '429 RateLimitError'가 났을 때만!
-            wait=wait_random_exponential(min=4, max=15),   # 2. 얼마나 기다릴까? -> 1초, 2초, 4초... 지수적으로 늘려가며!
+            wait=wait_random_exponential(min=5, max=15),   # 2. 얼마나 기다릴까? -> 1초, 2초, 4초... 지수적으로 늘려가며!
             stop=stop_after_attempt(2)                     # 3. 몇 번까지 해볼까? -> 최대 5번까지만!
         )
         async def call_gpt_with_retry(msg, access_token, target_user_name):
@@ -411,7 +411,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             try:
                 async with gpt_semaphore:
                     result = await call_gpt_with_retry(msg, access_token, target_user_name)
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(1)
                     return result
             except Exception as e:
                 logger.error(
