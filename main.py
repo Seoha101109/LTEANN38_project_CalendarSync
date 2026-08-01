@@ -7,6 +7,8 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import asyncio
+import time
+import tiktoken
 
 import httpx
 from dotenv import load_dotenv
@@ -16,7 +18,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bs4 import BeautifulSoup
-from openai import AsyncOpenAI, RateLimitError, APIConnectionError, InternalServerError
+from openai import AsyncOpenAI
 
 import database
 import models
@@ -24,13 +26,7 @@ from database import engine, SessionLocal, get_db
 from calender_service import add_notice_to_calendar
 from Channel_Export import channel_export, get_graph_access_token
 from reset import resetdb
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-    retry_if_exception_type,
-    before_sleep_log
-)
+
 
 # ------------------------------------------------------------------
 # 🪵 [LOGGER & ANONYMIZATION]
@@ -72,6 +68,59 @@ RECENT_SYNC_REQUESTS = {}
 app = FastAPI(title="Teams Calendar Auto-Polling & Extract API")
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 scheduler = AsyncIOScheduler()
+
+# GPT-4o / GPT-4o-mini 인코더 로드
+encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+
+# -----------------------------------------------------------------
+# tpm 억제
+# -----------------------------------------------------------------
+def count_tokens(text: str) -> int:
+    """메시지의 실제 토큰 수를 사전 계산하는 함수"""
+    if not text:
+        return 0
+    return len(encoding.encode(text))
+
+
+class RateLimiter:
+    """분당 토큰(TPM) 및 분당 요청(RPM)을 사전에 미리 계산해서 제어하는 클래스"""
+    def __init__(self, max_tpm=180000, max_rpm=400):
+        self.max_tpm = max_tpm  # 안전하게 20만 제한 중 18만으로 잡음
+        self.max_rpm = max_rpm
+        
+        self.token_history = []  # (timestamp, token_count)
+        self.request_history = [] # [timestamp, ...]
+        self.lock = asyncio.Lock()
+
+    async def wait_for_capacity(self, estimated_tokens: int):
+        """요청을 보내기 전, TPM/RPM 한도 내에 들어올 때까지 대기(미루기)시키는 핵심 함수"""
+        async with self.lock:
+            while True:
+                now = time.time()
+                one_minute_ago = now - 60.0
+
+                # 60초가 지난 과거 기록들은 삭제
+                self.token_history = [item for item in self.token_history if item[0] > one_minute_ago]
+                self.request_history = [t for t in self.request_history if t > one_minute_ago]
+
+                # 현재 최근 1분간 사용된 토큰 총합 계산
+                current_tpm = sum(item[1] for item in self.token_history)
+                current_rpm = len(self.request_history)
+
+                # 한도를 초과하지 않는지 체크
+                if (current_tpm + estimated_tokens <= self.max_tpm) and (current_rpm + 1 <= self.max_rpm):
+                    # 승인! 기록에 추가하고 바로 출발
+                    self.token_history.append((now, estimated_tokens))
+                    self.request_history.append(now)
+                    return
+
+                # 한도 초과 위험 시: 가장 오래된 기록이 60초 지날 때까지 잠시 대기 (Sleep)
+                sleep_time = 1.0  # 1초 대기 후 다시 계산
+                logger.warning(f"⏳ 한도 접근 중 (현재 {current_tpm}/{self.max_tpm} 토큰) (현재 {current_rpm}/{self.max_rpm} 요청). {sleep_time}초 대기...")
+                await asyncio.sleep(sleep_time)
+
+# 글로벌 컨트롤러 생성
+rate_limiter = RateLimiter(max_tpm=180000, max_rpm=450) # 내 TPM 제한에 맞게 설정
 
 # ------------------------------------------------------------------
 # [Helper] 이메일 앞 2자리 추출을 통한 학년 자동 계산 함수
@@ -311,6 +360,13 @@ async def analyze_message_with_gpt(
             "image_url": {"url": f"data:image/png;base64,{b64_img}", "detail": "auto"}
         })
     
+    #조립 완료된 최종 텍스트의 토큰을 정확히 측정
+    text_tokens = count_tokens(system_prompt) + count_tokens(user_text_prompt)
+    image_tokens = len(image_base64_list) * 900
+    input_tokens = text_tokens + image_tokens
+    total_estimated_tokens = input_tokens + 500
+    await rate_limiter.wait_for_capacity(total_estimated_tokens)
+    
     completion = await client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=[
@@ -391,27 +447,17 @@ async def sync_single_user(user_id: str, now_utc: datetime):
 
         # 1. 💡 세마포어를 최외각에 선언 (전체 작업 중 동시에 날아가는 GPT 요청을 5개로 제한)
         gpt_semaphore = asyncio.Semaphore(3)
-
-
-        @retry(
-            retry=retry_if_exception_type(RateLimitError), # 1. 언제 재시도할까? -> '429 RateLimitError'가 났을 때만!
-            wait=wait_random_exponential(min=6, max=18),   # 2. 얼마나 기다릴까? -> 1초, 2초, 4초... 지수적으로 늘려가며!
-            stop=stop_after_attempt(2)                     # 3. 몇 번까지 해볼까? -> 최대 5번까지만!
-        )
-        async def call_gpt_with_retry(msg, access_token, target_user_name):
-            # 429 에러가 나면 여기서 에러가 뿜어져 나와야 @retry가 감지하고 재시도함!
-            return await analyze_message_with_gpt(
-                message_payload=msg,
-                graph_access_token=access_token,
-                target_user_name=target_user_name,
-            )
             
         # 2. 메시지 1개를 처리하는 내부 비동기 함수
         async def analyze_single_message(msg):
             try:
                 async with gpt_semaphore:
-                    result = await call_gpt_with_retry(msg, access_token, target_user_name)
-                    await asyncio.sleep(1.5)
+                    result = await analyze_message_with_gpt(
+                        message_payload=msg,
+                        graph_access_token=access_token,
+                        target_user_name=target_user_name
+                        )
+                    #await asyncio.sleep(1.5)
                     return result
             except Exception as e:
                 logger.error(
