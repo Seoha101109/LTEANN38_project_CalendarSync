@@ -383,18 +383,20 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         written_count = 0
 
         # 1. 💡 세마포어를 최외각에 선언 (전체 작업 중 동시에 날아가는 GPT 요청을 5개로 제한)
-        gpt_semaphore = asyncio.Semaphore(5)
+        gpt_semaphore = asyncio.Semaphore(3)
 
 
         # 2. 메시지 1개를 처리하는 내부 비동기 함수
         async def analyze_single_message(msg):
             async with gpt_semaphore:
                 try:
-                    return await analyze_message_with_gpt(
+                    result = await analyze_message_with_gpt(
                         message_payload=msg,
                         graph_access_token=access_token,
                         target_user_name=target_user_name,
                     )
+                    await asyncio.sleep(0.5)
+                    return result
                 except Exception as e:
                     logger.error(
                         f"메시지 분석 중 오류 발생 (ID: {msg.get('id')}): {e}"

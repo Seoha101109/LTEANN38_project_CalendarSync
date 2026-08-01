@@ -3,12 +3,16 @@ import os
 import msal
 import requests
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 
 TENANT_ID = os.getenv('TENANT_ID')
 CLIENT_ID = os.getenv('CLIENT_ID')
 CLIENT_SECRET = os.getenv('CLIENT_SECRET')
+
+logger = logging.getLogger("ScheduleBot")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 # 1. 토큰 발급 전용 함수로 분리
 def get_graph_access_token():
@@ -26,7 +30,7 @@ def get_graph_access_token():
     token_result = app.acquire_token_for_client(scopes=scopes)
 
     if "access_token" not in token_result:
-        print("❌ [Token Error] 토큰 발급 실패:", token_result.get("error_description"))
+        logger.error("❌ [Token Error] 토큰 발급 실패:", token_result.get("error_description"))
         return None
 
     return token_result["access_token"]
@@ -59,8 +63,8 @@ def channel_export(TEAM_ID: str, CHANNEL_ID: str):
             # 다음 페이지 주소 갱신 (없으면 None이 되어 루프 종료)
             graph_url = data.get("@odata.nextLink")
         else:
-            print(f"❌ [Graph API Error] 데이터 접근 실패 ({response.status_code}): {response.text}")
+            logger.error(f"❌ [Graph API Error] 데이터 접근 실패 ({response.status_code}): {response.text}")
             break
 
-    print(f"✨ [Success] 총 {len(all_messages)}개의 메시지를 채널에서 성공적으로 가져왔습니다.")
+    logger.info(f"✨ [Success] 총 {len(all_messages)}개의 메시지를 채널에서 성공적으로 가져왔습니다.")
     return all_messages

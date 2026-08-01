@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import msal
 import requests
+import logging
 
 load_dotenv()
 
@@ -13,10 +14,12 @@ CLIENT_ID = os.environ.get("CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
 TIME_ZONE = "Korea Standard Time"
 
+logger = logging.getLogger("ScheduleBot")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 def get_access_token():
     if not TENANT_ID or not CLIENT_ID or not CLIENT_SECRET:
-        print(
+        logger.error(
             "❌ [.env 설정값 누락] TENANT_ID, CLIENT_ID, CLIENT_SECRET을"
             " 확인하세요."
         )
@@ -33,7 +36,7 @@ def get_access_token():
 
     token = result.get("access_token")
     if not token:
-        print(f"❌ [토큰 발급 실패] {result.get('error_description')}")
+        logger.error(f"❌ [토큰 발급 실패] {result.get('error_description')}")
     return token
 
 
@@ -205,7 +208,7 @@ def add_notice_to_calendar(user_email: str, notice_data: dict) -> bool:
     """
     access_token = get_access_token()
     if access_token is None:
-        print("❌ [Calendar] access_token 없음으로 등록 취소")
+        logger.error("❌ [Calendar] access_token 없음으로 등록 취소")
         return False
 
     # 1. 후처리 함수를 거쳐 8일 이상 일정을 분할한 일정 리스트 획득
@@ -222,28 +225,18 @@ def add_notice_to_calendar(user_email: str, notice_data: dict) -> bool:
         try:
             event_body = make_event_body(notice)
         except Exception as e:
-            print(f"❌ [make_event_body 에러] {e}")
+            logger.error(f"❌ [make_event_body 에러] {e}")
             success_all = False
             continue
 
         url = f"https://graph.microsoft.com/v1.0/users/{user_email}/events"
 
-        print(
-            "🚀 [Calendar API 요청] Target:"
-            f" {user_email} | Title: {event_body.get('subject')}"
-        )
-        print(
-            "   └ 시간:"
-            f" {event_body['start']['dateTime']} ~"
-            f" {event_body['end']['dateTime']}"
-        )
-
         response = requests.post(url, headers=headers, json=event_body)
 
         if response.status_code in (200, 201):
-            print(f"✅ [Calendar API 성공] {event_body.get('subject')}")
+            logger.info(f"✅ [Calendar API 성공]")
         else:
-            print(
+            logger.error(
                 f"❌ [Calendar API 실패 - HTTP {response.status_code}]"
                 f" {response.text}"
             )
