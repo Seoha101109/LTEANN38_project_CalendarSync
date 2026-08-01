@@ -76,7 +76,7 @@ scheduler = AsyncIOScheduler()
 encoding = tiktoken.encoding_for_model("gpt-4o-mini")
 
 # -----------------------------------------------------------------
-# tpm 억제
+# tpm 억제 파이프라인
 # -----------------------------------------------------------------
 def count_tokens(text: str) -> int:
     """메시지의 실제 토큰 수를 사전 계산하는 함수"""
@@ -84,65 +84,93 @@ def count_tokens(text: str) -> int:
         return 0
     return len(encoding.encode(text))
 
+class GlobalOpenAIPipeline:
+    """전체 앱에서 단 1개만 실행되며, OpenAI API 호출 속도를 총괄하는 클래스"""
+    def __init__(self, client, max_tpm: int = 150000):
+        self.client = client
+        self.max_tpm = max_tpm
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.used_tokens = 0
+        self.window_start = time.time()
+        self.worker_task = None
 
-class RateLimiter:
-    def __init__(self, max_tpm=155000, max_rpm=400, min_interval=0.01):
-        self.max_tpm = max_tpm          # 안전하게 15만으로 설정
-        self.max_rpm = max_rpm
-        self.min_interval = min_interval # 💡 요청 간 최소 간격 (0.15초)
-        
-        self.token_history = []
-        self.request_history = []
-        self.last_request_time = 0.0    # 마지막으로 요청이 통과한 시간
-        self.lock = asyncio.Lock()
+    async def start(self):
+        """백그라운드 Worker 시작"""
+        self.worker_task = asyncio.create_task(self._worker())
 
-    async def wait_for_capacity(self, estimated_tokens: int):
-        async with self.lock: # 🔒 한 번에 하나의 코루틴만 지나감
-            while True:
-                now = time.time()
-                one_minute_ago = now - 60.0
+    async def stop(self):
+        """Worker 안전 중지"""
+        if self.worker_task:
+            await self.queue.put(None)
+            await self.worker_task
 
-                # 1. 60초 지난 과거 기록 정원 정리
-                self.token_history = [item for item in self.token_history if item[0] > one_minute_ago]
-                self.request_history = [t for t in self.request_history if t > one_minute_ago]
+    async def _wait_for_tpm(self, estimated_tokens: int):
+        now = time.time()
+        # 60초가 지나면 윈도우 리셋
+        if now - self.window_start >= 60:
+            self.used_tokens = 0
+            self.window_start = now
 
-                current_tpm = sum(item[1] for item in self.token_history)
-                current_rpm = len(self.request_history)
+        # 하드캡(Cap) 안전장치: 요청 1개당 토큰은 최대 4,000T로 제한 (오계산 방지)
+        safe_tokens = min(estimated_tokens, 4000)
 
-                # 2. 💡 요청 사이의 연사 방지 (Throttling)
-                time_since_last = now - self.last_request_time
-                if time_since_last < self.min_interval:
-                    # 너무 촘촘하게 들어오면 최소 간격만큼 대기
-                    await asyncio.sleep(self.min_interval - time_since_last)
-                    now = time.time() # 시간 갱신
+        # 15.5만 TPM 초과 시 대기
+        while self.used_tokens + safe_tokens > self.max_tpm:
+            sleep_time = 60 - (now - self.window_start)
+            if sleep_time > 0:
+                print(f"⏳ [중앙통제] TPM 한도 도달 ({self.used_tokens}/{self.max_tpm}T). {sleep_time:.1f}초 대기...")
+                await asyncio.sleep(max(sleep_time, 1.0))
+            
+            now = time.time()
+            if now - self.window_start >= 60:
+                self.used_tokens = 0
+                self.window_start = now
 
-                # 3. TPM 및 RPM 용량 체크
-                if (current_tpm + estimated_tokens <= self.max_tpm) and (current_rpm + 1 <= self.max_rpm):
-                    # 승인!
-                    self.token_history.append((now, estimated_tokens))
-                    self.request_history.append(now)
-                    self.last_request_time = now # 💡 마지막 통과 시간 기록
-                    
-                    logger.info(
-                        f"🟢 [RateLimiter 승인] 예상: {estimated_tokens}T | "
-                        f"현재 1분 사용량: {current_tpm + estimated_tokens}/{self.max_tpm}T"
-                    )
-                    return
+        self.used_tokens += safe_tokens
 
-                # 한도 초과 위험 시: 가장 오래된 기록이 60초 지날 때까지 잠시 대기 (Sleep)
-                sleep_time = 1.0  # 1초 대기 후 다시 계산
-                logger.warning(f"⏳ 한도 접근 중 (현재 {current_tpm}/{self.max_tpm} 토큰) (현재 {current_rpm}/{self.max_rpm} 요청). {sleep_time}초 대기...")
-                await asyncio.sleep(sleep_time)
-    async def update_actual_usage(self, estimated_tokens: int, actual_tokens: int):
-        """실제 사용된 토큰 수와의 차액을 보정하는 함수"""
-        async with self.lock:
-            diff = actual_tokens - estimated_tokens
-            if diff > 0:
-                # 예상보다 실제 토큰이 더 나갔으면 차액만큼 기록에 추가 가산
-                self.token_history.append((time.time(), diff))
+    async def _worker(self):
+        """Queue에서 일거리를 하나씩 빼내 순차적으로 API를 호출하는 단 1명의 일꾼"""
+        while True:
+            item = await self.queue.get()
+            if item is None:
+                self.queue.task_done()
+                break
+
+            system_prompt, user_content, response_format, estimated_tokens, response_future = item
+
+            try:
+                # 1. 속도 검문
+                await self._wait_for_tpm(estimated_tokens)
+
+                # 2. OpenAI API 호출
+                completion = await self.client.beta.chat.completions.parse(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    response_format=response_format,
+                    temperature=0,
+                )
+
+                parsed_result = completion.choices[0].message.parsed
+                response_future.set_result(parsed_result)
+
+            except Exception as e:
+                response_future.set_exception(e)
+            finally:
+                self.queue.task_done()
+
+    async def request_parse(self, system_prompt: str, user_content: list, response_format: type, estimated_tokens: int):
+        """외부 Task가 요청을 던지는 창구"""
+        loop = asyncio.get_running_loop()
+        response_future = loop.create_future()
+
+        await self.queue.put((system_prompt, user_content, response_format, estimated_tokens, response_future))
+        return await response_future
 
 # 글로벌 컨트롤러 생성
-rate_limiter = RateLimiter() # 내 TPM 제한에 맞게 설정
+pipeline = GlobalOpenAIPipeline(max_tpm=150000)
 
 # ------------------------------------------------------------------
 # [Helper] 이메일 앞 2자리 추출을 통한 학년 자동 계산 함수
@@ -346,7 +374,7 @@ async def analyze_message_with_gpt(
   3) title: 제목 끝에 반드시 '#마감' 태그 추가 ([1학년] 현송장학금 신청 마감#마감)
   
 [5. 세부 추출 규칙]
-- 일시(`start_time`, `end_time`): 메시지 작성 시점 기준 ISO 8601 변환. 시간을 모르는 당일 일정은 하루 종일(All-day) 이벤트로 처리.
+- 일시(`start_time`, `end_time`): 시간을 모르는 당일 일정은 하루 종일(All-day) 이벤트로 처리.
 - 작성일을 날짜 계산에 사용하는 유일한 경우는 상대적인 날짜 표현이 있을 경우이며, 절대로 작성일을 시작일 또는 종료일로 판단해선 안돼.
 - **학년 판단 기준(매우 중요)**: 특정 학년(1학년, 신입생, 졸업반 등) 명시 시 반드시 'target_grades'에 명시된 학년 입력, 명시된 학년 없거나 전교생 대상이면 'target_grades'는 [] 처리.
 - 수신자 검증: 이미지/본문에 캘린더 주인과 다른 타인의 이름이 지정된 개인 일정이면 무조건 has_schedule=False 처리.
@@ -387,23 +415,15 @@ async def analyze_message_with_gpt(
     image_tokens = len(image_base64_list) * 1200
     input_tokens = text_tokens + image_tokens
     total_estimated_tokens = input_tokens + 1000
-    await rate_limiter.wait_for_capacity(total_estimated_tokens)
     
-    completion = await client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ],
+    completion = await pipeline.request_parse(
+        system_prompt=system_prompt,
+        user_content=user_content,
         response_format=ExtractedSchedule,
-        temperature=0,
+        estimated_tokens=total_estimated_tokens
     )
-    
-    if completion.usage:
-        actual_total = completion.usage.total_tokens
-        await rate_limiter.update_actual_usage(total_estimated_tokens, actual_total)
         
-    return completion.choices[0].message.parsed
+    return completion
 
 
 # ------------------------------------------------------------------
@@ -699,7 +719,7 @@ async def cleanup_inactive_users_job():
         db.close()
 
 @app.on_event("startup")
-def start_scheduler():
+async def start_scheduler():
     scheduler.add_job(
         auto_polling_sync_job, 
         'cron', 
@@ -715,11 +735,13 @@ def start_scheduler():
         misfire_grace_time=3600,
         coalesce=True
     )
-    scheduler.start()
+    await scheduler.start()
+    await pipeline.start()
 
 @app.on_event("shutdown")
-def shutdown_scheduler():
-    scheduler.shutdown()
+async def shutdown_scheduler():
+    await scheduler.shutdown()
+    await pipeline.stop()
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
