@@ -86,7 +86,7 @@ def count_tokens(text: str) -> int:
 
 
 class RateLimiter:
-    def __init__(self, max_tpm=160000, max_rpm=400, min_interval=0.2):
+    def __init__(self, max_tpm=155000, max_rpm=400, min_interval=0.02):
         self.max_tpm = max_tpm          # 안전하게 15만으로 설정
         self.max_rpm = max_rpm
         self.min_interval = min_interval # 💡 요청 간 최소 간격 (0.15초)
