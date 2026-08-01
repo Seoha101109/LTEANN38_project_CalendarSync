@@ -427,7 +427,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             channel_written = 0
             
             # 🚨 [수정 1] 동기 함수를 안전하게 비동기 스레드로 실행하여 이벤트 루프 차단 방지
-            raw_messages = await asyncio.to_thread(channel_export, ch["team_id"], ch["channel_id"])
+            raw_messages = await channel_export(ch["team_id"], ch["channel_id"], access_token)
             if not raw_messages:
                 return 0
 
