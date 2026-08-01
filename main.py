@@ -417,7 +417,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                         graph_access_token=access_token,
                         target_user_name=target_user_name
                     )
-                    await asyncio.sleep(0.9)
+                    await asyncio.sleep(1.5)
                     return result
             except Exception as e:
                 logger.error(f"❌ 메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
