@@ -66,7 +66,10 @@ database.Base.metadata.create_all(bind=engine)
 RECENT_SYNC_REQUESTS = {}
 
 app = FastAPI(title="Teams Calendar Auto-Polling & Extract API")
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = AsyncOpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    max_retries=0
+    )
 scheduler = AsyncIOScheduler()
 
 # GPT-4o / GPT-4o-mini 인코더 로드
@@ -130,6 +133,13 @@ class RateLimiter:
                 sleep_time = 1.0  # 1초 대기 후 다시 계산
                 logger.warning(f"⏳ 한도 접근 중 (현재 {current_tpm}/{self.max_tpm} 토큰) (현재 {current_rpm}/{self.max_rpm} 요청). {sleep_time}초 대기...")
                 await asyncio.sleep(sleep_time)
+    async def update_actual_usage(self, estimated_tokens: int, actual_tokens: int):
+        """실제 사용된 토큰 수와의 차액을 보정하는 함수"""
+        async with self.lock:
+            diff = actual_tokens - estimated_tokens
+            if diff > 0:
+                # 예상보다 실제 토큰이 더 나갔으면 차액만큼 기록에 추가 가산
+                self.token_history.append((time.time(), diff))
 
 # 글로벌 컨트롤러 생성
 rate_limiter = RateLimiter() # 내 TPM 제한에 맞게 설정
@@ -389,7 +399,10 @@ async def analyze_message_with_gpt(
         temperature=0,
     )
     
-
+    if completion.usage:
+        actual_total = completion.usage.total_tokens
+        await rate_limiter.update_actual_usage(total_estimated_tokens, actual_total)
+        
     return completion.choices[0].message.parsed
 
 
