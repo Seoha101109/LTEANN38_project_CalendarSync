@@ -86,7 +86,7 @@ def count_tokens(text: str) -> int:
 
 
 class RateLimiter:
-    def __init__(self, max_tpm=155000, max_rpm=400, min_interval=0.02):
+    def __init__(self, max_tpm=155000, max_rpm=400, min_interval=0.01):
         self.max_tpm = max_tpm          # 안전하게 15만으로 설정
         self.max_rpm = max_rpm
         self.min_interval = min_interval # 💡 요청 간 최소 간격 (0.15초)
@@ -384,9 +384,9 @@ async def analyze_message_with_gpt(
     
     #조립 완료된 최종 텍스트의 토큰을 정확히 측정
     text_tokens = count_tokens(system_prompt) + count_tokens(user_text_prompt)
-    image_tokens = len(image_base64_list) * 900
+    image_tokens = len(image_base64_list) * 1200
     input_tokens = text_tokens + image_tokens
-    total_estimated_tokens = input_tokens + 500
+    total_estimated_tokens = input_tokens + 1000
     await rate_limiter.wait_for_capacity(total_estimated_tokens)
     
     completion = await client.beta.chat.completions.parse(
