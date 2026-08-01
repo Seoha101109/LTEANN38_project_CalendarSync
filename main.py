@@ -390,13 +390,13 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         written_count = 0
 
         # 1. 💡 세마포어를 최외각에 선언 (전체 작업 중 동시에 날아가는 GPT 요청을 5개로 제한)
-        gpt_semaphore = asyncio.Semaphore(5)
+        gpt_semaphore = asyncio.Semaphore(3)
 
 
         @retry(
             retry=retry_if_exception_type(RateLimitError), # 1. 언제 재시도할까? -> '429 RateLimitError'가 났을 때만!
-            wait=wait_random_exponential(min=3, max=10),   # 2. 얼마나 기다릴까? -> 1초, 2초, 4초... 지수적으로 늘려가며!
-            stop=stop_after_attempt(5)                     # 3. 몇 번까지 해볼까? -> 최대 5번까지만!
+            wait=wait_random_exponential(min=4, max=15),   # 2. 얼마나 기다릴까? -> 1초, 2초, 4초... 지수적으로 늘려가며!
+            stop=stop_after_attempt(2)                     # 3. 몇 번까지 해볼까? -> 최대 5번까지만!
         )
         async def call_gpt_with_retry(msg, access_token, target_user_name):
             # 429 에러가 나면 여기서 에러가 뿜어져 나와야 @retry가 감지하고 재시도함!
