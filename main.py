@@ -16,7 +16,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bs4 import BeautifulSoup
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError, APIConnectionError, InternalServerError
 
 import database
 import models
@@ -24,6 +24,13 @@ from database import engine, SessionLocal, get_db
 from calender_service import add_notice_to_calendar
 from Channel_Export import channel_export, get_graph_access_token
 from reset import resetdb
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_random_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
 
 # ------------------------------------------------------------------
 # 🪵 [LOGGER & ANONYMIZATION]
@@ -383,25 +390,34 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         written_count = 0
 
         # 1. 💡 세마포어를 최외각에 선언 (전체 작업 중 동시에 날아가는 GPT 요청을 5개로 제한)
-        gpt_semaphore = asyncio.Semaphore(3)
+        gpt_semaphore = asyncio.Semaphore(5)
 
 
+        @retry(
+            retry=retry_if_exception_type(RateLimitError), # 1. 언제 재시도할까? -> '429 RateLimitError'가 났을 때만!
+            wait=wait_random_exponential(min=1, max=10),   # 2. 얼마나 기다릴까? -> 1초, 2초, 4초... 지수적으로 늘려가며!
+            stop=stop_after_attempt(5)                     # 3. 몇 번까지 해볼까? -> 최대 5번까지만!
+        )
+        async def call_gpt_with_retry(msg, access_token, target_user_name):
+            # 429 에러가 나면 여기서 에러가 뿜어져 나와야 @retry가 감지하고 재시도함!
+            return await analyze_message_with_gpt(
+                message_payload=msg,
+                graph_access_token=access_token,
+                target_user_name=target_user_name,
+            )
+            
         # 2. 메시지 1개를 처리하는 내부 비동기 함수
         async def analyze_single_message(msg):
-            async with gpt_semaphore:
-                try:
-                    result = await analyze_message_with_gpt(
-                        message_payload=msg,
-                        graph_access_token=access_token,
-                        target_user_name=target_user_name,
-                    )
-                    await asyncio.sleep(0.5)
+            try:
+                async with gpt_semaphore:
+                    result = call_gpt_with_retry(msg, access_token, target_user_name)
+                    await asyncio.sleep(0.2)
                     return result
-                except Exception as e:
-                    logger.error(
-                        f"메시지 분석 중 오류 발생 (ID: {msg.get('id')}): {e}"
-                    )
-                    return None
+            except Exception as e:
+                logger.error(
+                    f"메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}"
+                )
+                return None
 
 
         # 3. 채널 1개를 처리하는 비동기 함수 (채널 병렬화용)
