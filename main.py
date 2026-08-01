@@ -9,7 +9,7 @@ from typing import List, Optional
 import asyncio
 import time
 import tiktoken
-
+from contextlib import asynccontextmanager
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, BackgroundTasks
@@ -65,7 +65,6 @@ database.Base.metadata.create_all(bind=engine)
 
 RECENT_SYNC_REQUESTS = {}
 
-app = FastAPI(title="Teams Calendar Auto-Polling & Extract API")
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     max_retries=0
@@ -171,6 +170,44 @@ class GlobalOpenAIPipeline:
 
 # 글로벌 컨트롤러 생성
 pipeline = GlobalOpenAIPipeline(client, max_tpm=150000)
+
+#FastAPI app
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ================= [STARTUP] =================
+    # 1. 크론 스케줄러 작업 등록
+    scheduler.add_job(
+        auto_polling_sync_job, 
+        'cron', 
+        minute=SCHEDULER_CRON_MINUTES,
+        misfire_grace_time=60,
+        coalesce=True
+    )
+    scheduler.add_job(
+        cleanup_inactive_users_job,
+        'cron',
+        hour=3,
+        minute=0,
+        misfire_grace_time=3600,
+        coalesce=True
+    )
+    
+    # 2. 스케줄러 및 OpenAI 파이프라인 시작
+    scheduler.start()        # 💡 await 없이 실행 (APScheduler 기준)
+    await pipeline.start()   # 💡 pipeline은 async 메서드이므로 await 필수
+    
+    print("🟢 [Lifespan] 스케줄러 및 OpenAI 파이프라인 가동 완료")
+
+    yield  # <-- 서버가 정상 구동되는 시점
+
+    # ================= [SHUTDOWN] =================
+    # 3. 역순으로 정리 및 종료
+    scheduler.shutdown()     # 💡 shutdown도 보통 동기 메서드 (필요시 wait=False)
+    await pipeline.stop()    # 💡 Worker 안전 종료
+    
+    print("🔴 [Lifespan] 모든 백그라운드 서비스가 안전하게 종료되었습니다.")
+
+app = FastAPI(title="Teams Calendar Auto-Polling & Extract API", lifespan=lifespan)
 
 # ------------------------------------------------------------------
 # [Helper] 이메일 앞 2자리 추출을 통한 학년 자동 계산 함수
@@ -717,31 +754,6 @@ async def cleanup_inactive_users_job():
         logger.error(f"❌ [개인정보 파기 에러] 휴면 계정 삭제 중 오류 발생: {e}", exc_info=True)
     finally:
         db.close()
-
-@app.on_event("startup")
-async def start_scheduler():
-    scheduler.add_job(
-        auto_polling_sync_job, 
-        'cron', 
-        minute=SCHEDULER_CRON_MINUTES,
-        misfire_grace_time=60,
-        coalesce=True
-    )
-    scheduler.add_job(
-        cleanup_inactive_users_job,
-        'cron',
-        hour=3,
-        minute=0,
-        misfire_grace_time=3600,
-        coalesce=True
-    )
-    await scheduler.start()
-    await pipeline.start()
-
-@app.on_event("shutdown")
-async def shutdown_scheduler():
-    await scheduler.shutdown()
-    await pipeline.stop()
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
