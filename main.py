@@ -407,7 +407,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         if not user_channels:
             return 0
 
-        gpt_semaphore = asyncio.Semaphore(2)
+        gpt_semaphore = asyncio.Semaphore(3)
             
         async def analyze_single_message(msg):
             try:
