@@ -467,10 +467,14 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                         logger.info(f"⚠️ [{idx+1}번 메시지 탈락] 신뢰도 미달: {schedule_item.confidence} < {LLM_CONFIDENCE_THRESHOLD}")
                         continue
 
+                    is_target_empty = not schedule_item.target_grades  # 타겟 학년이 명시 안 됨 = 전체 공지
+
                     is_grade_matching = (
                         schedule_item.is_for_all_grades
+                        or is_target_empty
                         or (user_grade in schedule_item.target_grades)
                     )
+
                     if not is_grade_matching:
                         logger.info(f"⚠️ [{idx+1}번 메시지 탈락] 학년 불일치: 타겟({schedule_item.target_grades}) vs 유저({user_grade})")
                         continue
