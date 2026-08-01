@@ -330,11 +330,11 @@ async def analyze_message_with_gpt(
 """
 
     user_content = [{"type": "text", "text": user_text_prompt}]
-    # for b64_img in image_base64_list:
-    #     user_content.append({
-    #         "type": "image_url",
-    #         "image_url": {"url": f"data:image/png;base64,{b64_img}", "detail": "auto"}
-    #     })
+    for b64_img in image_base64_list:
+        user_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{b64_img}", "detail": "auto"}
+        })
     
     completion = await client.beta.chat.completions.parse(
         model="gpt-4o-mini",
@@ -407,7 +407,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         if not user_channels:
             return 0
 
-        gpt_semaphore = asyncio.Semaphore(5)
+        gpt_semaphore = asyncio.Semaphore(7)
             
         async def analyze_single_message(msg):
             try:
@@ -417,7 +417,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                         graph_access_token=access_token,
                         target_user_name=target_user_name
                     )
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(2)
                     return result
             except Exception as e:
                 logger.error(f"❌ 메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
