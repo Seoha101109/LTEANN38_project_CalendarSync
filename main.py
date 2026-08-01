@@ -330,11 +330,11 @@ async def analyze_message_with_gpt(
 """
 
     user_content = [{"type": "text", "text": user_text_prompt}]
-    for b64_img in image_base64_list:
-        user_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{b64_img}", "detail": "auto"}
-        })
+    # for b64_img in image_base64_list:
+    #     user_content.append({
+    #         "type": "image_url",
+    #         "image_url": {"url": f"data:image/png;base64,{b64_img}", "detail": "auto"}
+    #     })
     
     completion = await client.beta.chat.completions.parse(
         model="gpt-4o-mini",
@@ -342,6 +342,7 @@ async def analyze_message_with_gpt(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
         ],
+        response_format=ExtractedSchedule,
         temperature=0
     )
         
