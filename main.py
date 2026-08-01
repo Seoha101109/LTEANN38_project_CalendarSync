@@ -170,7 +170,7 @@ class GlobalOpenAIPipeline:
         return await response_future
 
 # 글로벌 컨트롤러 생성
-pipeline = GlobalOpenAIPipeline(max_tpm=150000)
+pipeline = GlobalOpenAIPipeline(client, max_tpm=150000)
 
 # ------------------------------------------------------------------
 # [Helper] 이메일 앞 2자리 추출을 통한 학년 자동 계산 함수
