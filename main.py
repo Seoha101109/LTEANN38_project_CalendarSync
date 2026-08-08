@@ -206,6 +206,40 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
 
     return discovered_channels
     
+    
+# ------------------------------------------------------------------
+# [Bot Framework] Teams 1:1 대화창 메시지 발송 헬퍼
+# ------------------------------------------------------------------
+async def send_teams_reply(service_url: str, conversation_id: str, text: str, access_token: Optional[str] = None):
+    """Bot Framework Connector API를 사용하여 유저 1:1 대화창에 메시지 발송"""
+    if not service_url or not conversation_id:
+        return
+
+    if not access_token:
+        access_token = get_graph_access_token()
+
+    # serviceUrl 끝의 슬래시 제거
+    base_url = service_url.rstrip("/")
+    reply_url = f"{base_url}/v3/conversations/{conversation_id}/activities"
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "type": "message",
+        "text": text
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as http_client:
+        try:
+            res = await http_client.post(reply_url, headers=headers, json=payload)
+            if res.status_code not in (200, 201, 202):
+                logger.error(f"❌ [Bot Reply Failed] Status: {res.status_code}, Body: {res.text}")
+        except Exception as e:
+            logger.error(f"❌ [Bot Reply Exception]: {e}")
+            
 # ------------------------------------------------------------------
 # [AI Helper Function] OpenAI GPT-4o-mini 멀티모달 분석
 # ------------------------------------------------------------------
@@ -520,7 +554,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         db.close()
         
 # ------------------------------------------------------------------
-# [FastAPI Router & Scheduler Tasks]
+# [FastAPI Router] Teams Webhook Endpoint (대화 및 이벤트 수신)
 # ------------------------------------------------------------------
 @app.post("/api/messages")
 async def teams_event_webhook(
@@ -532,6 +566,9 @@ async def teams_event_webhook(
     activity_type = data.get("type")
     now_utc = datetime.now(timezone.utc)
     
+    # ------------------------------------------------------------------
+    # 1. 봇 설치 / 대화 시작 이벤트 (installationUpdate / conversationUpdate)
+    # ------------------------------------------------------------------
     if (activity_type == "installationUpdate" and data.get("action") == "add") or (activity_type == "conversationUpdate" and data.get("membersAdded")):
         from_user = data.get("from", {})
         user_id = from_user.get("aadObjectId") or from_user.get("id")
@@ -570,7 +607,34 @@ async def teams_event_webhook(
             db.add(install_log)
             db.commit()
 
+            # 웰컴 메시지 전송 (MS 검증 항목: Bot welcome message 통과용)
+            welcome_text = (
+                "👋 **TeamsSync 서비스가 정상 연결되었습니다!**\n\n"
+                "TeamsSync는 백그라운드에서 공지사항 및 포스터를 분석하여 "
+                "Outlook 캘린더로 자동 동기화해 드립니다. 별도의 명령어를 입력하지 않으셔도 안전하게 작동합니다."
+            )
+            background_tasks.add_task(send_teams_reply, service_url, user_conversation_id, welcome_text)
+
+            # 백그라운드 동기화 수행
             background_tasks.add_task(sync_single_user, user_id, now_utc)
+
+    # ------------------------------------------------------------------
+    # 2. 일반 텍스트 메시지 수신 (MS 검증 도구의 "Hi" 명령어 응답용)
+    # ------------------------------------------------------------------
+    elif activity_type == "message":
+        user_conversation = data.get("conversation") or {}
+        user_conversation_id = user_conversation.get("id")
+        service_url = data.get("serviceUrl")
+        
+        reply_text = (
+            "🤖 **TeamsSync 자동 동기화 엔진 안내**\n\n"
+            "이 봇은 백그라운드 자동 동기화 전용 서비스입니다.\n"
+            "채널 공지사항 및 일정은 설정된 주기에 따라 "
+            "자동으로 Outlook 캘린더에 동기화되니 안심하고 사용해 주세요! 😊"
+        )
+        
+        # 봇이 메시지에 대답 (MS 검증 항목: Responding to command Hi 통과용)
+        background_tasks.add_task(send_teams_reply, service_url, user_conversation_id, reply_text)
 
     return {"status": "ok"}
 
