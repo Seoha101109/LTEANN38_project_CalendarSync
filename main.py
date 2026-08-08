@@ -172,7 +172,7 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
     headers = {"Authorization": f"Bearer {access_token}"}
     discovered_channels = []
 
-    async with httpx.AsyncClient(timeout=15.0) as http_client:
+    async with httpx.AsyncClient(timeout=10.0) as http_client:
         teams_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/joinedTeams"
         try:
             teams_res = await http_client.get(teams_url, headers=headers)
@@ -471,7 +471,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             channel_written = 0
             
             # 🚨 [수정 1] 동기 함수를 안전하게 비동기 스레드로 실행하여 이벤트 루프 차단 방지
-            raw_messages = await channel_export(ch["team_id"], ch["channel_id"], access_token)
+            raw_messages = await channel_export(ch["team_id"], ch["channel_id"], last_sync_time, access_token)
             if not raw_messages:
                 return 0
 
@@ -657,8 +657,8 @@ async def auto_polling_sync_job():
         if not all_users:
             return
 
-        #group_index = 0
-        group_index = (now_utc.minute // POLLING_INTERVAL_MINUTES) % POLLS_PER_HOUR
+        group_index = 0
+        #group_index = (now_utc.minute // POLLING_INTERVAL_MINUTES) % POLLS_PER_HOUR
         target_users = [
             user for idx, user in enumerate(all_users)
             if idx % POLLS_PER_HOUR == group_index

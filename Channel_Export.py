@@ -4,6 +4,7 @@ import msal
 import httpx
 from dotenv import load_dotenv
 import logging
+from datetime import datetime
 
 load_dotenv()
 
@@ -33,7 +34,7 @@ def get_graph_access_token():
     return token_result["access_token"]
 
 
-async def channel_export(TEAM_ID: str, CHANNEL_ID: str, access_token: str = None):
+async def channel_export(TEAM_ID: str, CHANNEL_ID: str, last_sync_time: datetime, access_token: str = None):
     """채널 내 모든 메시지를 비동기로 가져옵니다."""
     if not access_token:
         access_token = get_graph_access_token()
@@ -41,7 +42,9 @@ async def channel_export(TEAM_ID: str, CHANNEL_ID: str, access_token: str = None
     if not access_token:
         return []
     
-    graph_url = f"https://graph.microsoft.com/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages?$top=50"
+    last_sync_iso = last_sync_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+    
+    graph_url = f"https://graph.microsoft.com/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages?$filter=lastModifiedDateTime gt {last_sync_iso}"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
