@@ -61,6 +61,7 @@ DEFAULT_USER_GRADE = int(os.getenv("DEFAULT_USER_GRADE", "1"))
 # ==============================================================================
 
 load_dotenv()
+models.Base.metadata.drop_all(bind=engine)
 database.Base.metadata.create_all(bind=engine)
 
 RECENT_SYNC_REQUESTS = {}
