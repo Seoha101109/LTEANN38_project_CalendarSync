@@ -34,38 +34,40 @@ def get_graph_access_token():
     return token_result["access_token"]
 
 
-async def channel_export(TEAM_ID: str, CHANNEL_ID: str, last_sync_time: datetime, access_token: str = None):
-    """채널 내 모든 메시지를 비동기로 가져옵니다."""
+async def channel_export(TEAM_ID: str, CHANNEL_ID: str, last_sync_time, access_token: str = None):
+    """채널 메시지를 가져오되, 마지막 동기화된 시점을 만나면 즉시 중단합니다."""
     if not access_token:
         access_token = get_graph_access_token()
         
     if not access_token:
         return []
     
-    last_sync_iso = last_sync_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+    new_messages = []
     
-    graph_url = f"https://graph.microsoft.com/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages?$filter=lastModifiedDateTime gt {last_sync_iso}"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-
-    all_messages = []
-
-    # 비동기 AsyncClient 사용
+    # 1. $filter 제거하고 기본 최신순($top=20 또는 50)으로 요청
+    url = f"https://graph.microsoft.com/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages?$top=50"
+    
     async with httpx.AsyncClient(timeout=15.0) as client:
-        while graph_url:
-            response = await client.get(graph_url, headers=headers)
-
-            if response.status_code == 200:
-                data = response.json()
-                messages = data.get("value", [])
-                all_messages.extend(messages)
+        try:
+            response = await client.get(
+                url, 
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            response.raise_for_status()
+            data = response.json()
+            messages = data.get("value", [])
+            
+            for msg in messages:
+                # 메시지 작성 시간 파싱 (Graph API 시간 형식 대응)
+                created_dt = datetime.fromisoformat(msg['createdDateTime'].replace("Z", "+00:00"))
                 
-                graph_url = data.get("@odata.nextLink")
-            else:
-                logger.error(f"❌ [Graph API Error] 데이터 접근 실패 ({response.status_code}): {response.text}")
-                break
-
-    logger.info(f"✨ [Success] 총 {len(all_messages)}개의 메시지를 채널에서 가져왔습니다.")
-    return all_messages
+                # 2. 핵심: 이미 동기화된 시간보다 과거 메시지를 만나면 탐색 즉시 중단 (Early Exit)
+                if created_dt <= last_sync_time:
+                    break
+                    
+                new_messages.append(msg)
+                
+        except Exception as e:
+            logger.error(f"❌ [Graph API Error] 메시지 조회 실패: {e}")
+            
+    return new_messages
