@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import asyncio
-import time
+from local.anouncement import get_bot_token
 
 from contextlib import asynccontextmanager
 import httpx
@@ -208,22 +208,28 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
     
     
 # ------------------------------------------------------------------
-# [Bot Framework] Teams 1:1 대화창 메시지 발송 헬퍼
+# [Teams 메시지 답장 헬퍼 함수]
 # ------------------------------------------------------------------
-async def send_teams_reply(service_url: str, conversation_id: str, text: str, access_token: Optional[str] = None):
-    """Bot Framework Connector API를 사용하여 유저 1:1 대화창에 메시지 발송"""
+async def send_teams_reply(service_url: str, conversation_id: str, text: str):
+    """
+    Bot Framework Connector API를 사용해 Teams 1:1 대화창에 메시지 발송
+    """
     if not service_url or not conversation_id:
+        logger.warning("⚠️ service_url 또는 conversation_id가 없어 메시지를 보낼 수 없습니다.")
         return
 
-    if not access_token:
-        access_token = get_graph_access_token()
+    # 1) Bot Framework 전용 토큰 발급받기
+    bot_token = await get_bot_token(http_client)
+    if not bot_token:
+        logger.error("❌ Bot Token 발급 실패로 답장 발송 중단")
+        return
 
-    # serviceUrl 끝의 슬래시 제거
+    # 2) Bot Connector Endpoint 구성
     base_url = service_url.rstrip("/")
     reply_url = f"{base_url}/v3/conversations/{conversation_id}/activities"
 
     headers = {
-        "Authorization": f"Bearer {access_token}",
+        "Authorization": f"Bearer {bot_token}",  # 👈 401 해결의 핵심!
         "Content-Type": "application/json"
     }
 
@@ -235,10 +241,12 @@ async def send_teams_reply(service_url: str, conversation_id: str, text: str, ac
     async with httpx.AsyncClient(timeout=10.0) as http_client:
         try:
             res = await http_client.post(reply_url, headers=headers, json=payload)
-            if res.status_code not in (200, 201, 202):
-                logger.error(f"❌ [Bot Reply Failed] Status: {res.status_code}, Body: {res.text}")
+            if res.status_code in (200, 201, 202):
+                logger.info(f"✅ [Teams 메시지 발송 성공] ConvID: {conversation_id[:10]}...")
+            else:
+                logger.error(f"❌ [Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
         except Exception as e:
-            logger.error(f"❌ [Bot Reply Exception]: {e}")
+            logger.error(f"❌ [Teams 메시지 발송 예외 발생]: {e}")
             
 # ------------------------------------------------------------------
 # [AI Helper Function] OpenAI GPT-4o-mini 멀티모달 분석
