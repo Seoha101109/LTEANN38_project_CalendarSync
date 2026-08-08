@@ -617,9 +617,9 @@ async def teams_event_webhook(
 
             # 웰컴 메시지 전송 (MS 검증 항목: Bot welcome message 통과용)
             welcome_text = (
-                "👋 **TeamsSync 서비스가 정상 연결되었습니다!**\n\n"
-                "TeamsSync는 백그라운드에서 공지사항 및 포스터를 분석하여 "
-                "Outlook 캘린더로 자동 동기화해 드립니다. 별도의 명령어를 입력하지 않으셔도 안전하게 작동합니다."
+                "👋 **CalendarSync 서비스가 정상 연결되었습니다!**\n\n"
+                "CalendarSync는 백그라운드에서 공지사항 및 포스터를 분석하여 "
+                "캘린더로 자동 동기화해 드립니다. 별도의 명령어를 입력하지 않으셔도 안전하게 작동합니다."
             )
             background_tasks.add_task(send_teams_reply, service_url, user_conversation_id, welcome_text)
 
@@ -635,10 +635,10 @@ async def teams_event_webhook(
         service_url = data.get("serviceUrl")
         
         reply_text = (
-            "🤖 **TeamsSync 자동 동기화 엔진 안내**\n\n"
+            "🤖 **CalendarSync 자동 동기화 엔진 안내**\n\n"
             "이 봇은 백그라운드 자동 동기화 전용 서비스입니다.\n"
             "채널 공지사항 및 일정은 설정된 주기에 따라 "
-            "자동으로 Outlook 캘린더에 동기화되니 안심하고 사용해 주세요! 😊"
+            "자동으로 캘린더에 동기화되니 안심하고 사용해 주세요! 😊"
         )
         
         # 봇이 메시지에 대답 (MS 검증 항목: Responding to command Hi 통과용)
