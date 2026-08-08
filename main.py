@@ -242,7 +242,7 @@ async def send_teams_reply(service_url: str, conversation_id: str, text: str):
         try:
             res = await http_client.post(reply_url, headers=headers, json=payload)
             if res.status_code in (200, 201, 202):
-                logger.info(f"✅ [Teams 메시지 발송 성공] ConvID: {conversation_id[:10]}...")
+                logger.info(f"✅ [Teams 메시지 발송 성공]")
             else:
                 logger.error(f"❌ [Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
         except Exception as e:
@@ -486,7 +486,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             if not new_messages:
                 return 0
 
-            logger.info(f"📩 User({anon_user_id}) 채널({ch.get('channel_name', '알수없음')}) 신규 메시지 {len(new_messages)}개 발견! 분석 시작...")
+            logger.info(f"📩 User({anon_user_id}) 채널 신규 메시지 {len(new_messages)}개 발견! 분석 시작...")
 
             msg_tasks = [analyze_single_message(msg) for msg in new_messages]
             
@@ -528,7 +528,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                     try:
                         add_notice_to_calendar(target_email, schedule_dict)
                         channel_written += 1
-                        logger.info(f"✅ [{idx+1}번 메시지 성공] 캘린더 등록 완료: {schedule_item.title}")
+                        logger.info(f"✅ [{idx+1}번 메시지 성공] 캘린더 등록 완료")
                     except Exception as cal_err:
                         logger.error(f"❌ [{idx+1}번 메시지 실패] add_notice_to_calendar 예외: {cal_err}", exc_info=True)
 
