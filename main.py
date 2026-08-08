@@ -172,7 +172,7 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
     headers = {"Authorization": f"Bearer {access_token}"}
     discovered_channels = []
 
-    async with httpx.AsyncClient() as http_client:
+    async with httpx.AsyncClient(timeout=15.0) as http_client:
         teams_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/joinedTeams"
         try:
             teams_res = await http_client.get(teams_url, headers=headers)
@@ -332,6 +332,7 @@ async def analyze_message_with_gpt(
 - 예시: "6/5 발표, 6/12 보고서 제출" -> schedules에 2개 객체 생성
 
 [3. 제목 및 분류 규칙]
+- 일정의 'title(subject)'은 반드시 사람이 이해할 수 있는 요약된 공지/과제 명칭이어야 함.
 - 제목(`title`) 기본 형태: `[카테고리/과목] 핵심 내용` (예: [물리학] 물리학 성적 배부`)
 - 제목이나 본문에 과목명이 포함되어 있으면 과목명을 최우선 구분자로 사용.
 

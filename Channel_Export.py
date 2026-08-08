@@ -64,5 +64,5 @@ async def channel_export(TEAM_ID: str, CHANNEL_ID: str, access_token: str = None
                 logger.error(f"❌ [Graph API Error] 데이터 접근 실패 ({response.status_code}): {response.text}")
                 break
 
-    logger.info(f"✨ [Success] 총 {len(all_messages)}개의 메시지를 채널({CHANNEL_ID})에서 가져왔습니다.")
+    logger.info(f"✨ [Success] 총 {len(all_messages)}개의 메시지를 채널에서 가져왔습니다.")
     return all_messages
