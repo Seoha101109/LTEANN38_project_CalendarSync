@@ -208,37 +208,37 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
     
     
 # ------------------------------------------------------------------
-# [Teams 메시지 답장 헬퍼 함수]
+# [Bot Framework] Teams 1:1 대화창 메시지 발송 헬퍼
 # ------------------------------------------------------------------
 async def send_teams_reply(service_url: str, conversation_id: str, text: str):
-    """
-    Bot Framework Connector API를 사용해 Teams 1:1 대화창에 메시지 발송
-    """
+    """Bot Framework Connector API를 사용하여 유저 1:1 대화창에 메시지 발송"""
     if not service_url or not conversation_id:
-        logger.warning("⚠️ service_url 또는 conversation_id가 없어 메시지를 보낼 수 없습니다.")
+        logger.warning("⚠️ service_url 또는 conversation_id가 없어 메시지를 전송하지 못했습니다.")
         return
 
-    # 1) Bot Framework 전용 토큰 발급받기
-    bot_token = await get_bot_token(http_client)
-    if not bot_token:
-        logger.error("❌ Bot Token 발급 실패로 답장 발송 중단")
-        return
-
-    # 2) Bot Connector Endpoint 구성
-    base_url = service_url.rstrip("/")
-    reply_url = f"{base_url}/v3/conversations/{conversation_id}/activities"
-
-    headers = {
-        "Authorization": f"Bearer {bot_token}",  # 👈 401 해결의 핵심!
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "type": "message",
-        "text": text
-    }
-
+    # async with 블록을 먼저 열어서 http_client를 생성해야 합니다!
     async with httpx.AsyncClient(timeout=10.0) as http_client:
+        # 1. http_client가 생성된 후 토큰 발급 함수 호출
+        bot_token = await get_bot_token(http_client)
+        if not bot_token:
+            logger.error("❌ Bot Token 발급 실패로 메시지 발송 중단")
+            return
+
+        # 2. 메시지 전송 URL 및 헤더 설정
+        base_url = service_url.rstrip("/")
+        reply_url = f"{base_url}/v3/conversations/{conversation_id}/activities"
+
+        headers = {
+            "Authorization": f"Bearer {bot_token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "type": "message",
+            "text": text
+        }
+
+        # 3. 메시지 발송
         try:
             res = await http_client.post(reply_url, headers=headers, json=payload)
             if res.status_code in (200, 201, 202):
@@ -246,7 +246,7 @@ async def send_teams_reply(service_url: str, conversation_id: str, text: str):
             else:
                 logger.error(f"❌ [Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
         except Exception as e:
-            logger.error(f"❌ [Teams 메시지 발송 예외 발생]: {e}")
+            logger.error(f"❌ [Teams 메시지 발송 예외]: {e}")
             
 # ------------------------------------------------------------------
 # [AI Helper Function] OpenAI GPT-4o-mini 멀티모달 분석
