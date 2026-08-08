@@ -1,4 +1,4 @@
-# 📅 TeamsSync
+# 📅 CalendarSync
 
 Microsoft Teams 채널 공지사항(텍스트/이미지)을 AI가 분석하여 사용자의 Teams 캘린더에 일정을 자동으로 동기화해 주는 서비스입니다.
 

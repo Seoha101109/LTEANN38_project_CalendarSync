@@ -14,7 +14,7 @@ TEST_SERVICE_URL = "https://smba.trafficmanager.net/amer/"
 TEST_CONVERSATION_ID = os.environ.get("CONVERSATION_ID")
 
 ANNOUNCEMENT_TEXT = (
-    "📢 **[TeamsSync 공지사항]**\n\n"
+    "📢 **[CalendarSync 공지사항]**\n\n"
     "약관 및 개인정보 처리방침이 업데이트되었습니다. 1:1 봇 대화방을 통해 안내드립니다!"
 )
 
