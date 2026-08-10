@@ -180,6 +180,7 @@ class ExtractedSchedule(BaseModel):
         default=[], 
         description="메시지에서 추출된 일정 목록 (일정이 없으면 빈 리스트)"
     )
+    web_url: Optional[str] = None
 
 # ------------------------------------------------------------------
 # [Graph API Helper]
@@ -471,18 +472,14 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         async def analyze_single_message(msg):
             try:
                 async with gpt_semaphore:
-                    gpt_result = await analyze_message_with_gpt(
+                    result = await analyze_message_with_gpt(
                         message_payload=msg,
                         graph_access_token=access_token,
                         target_user_name=target_user_name
                     )
-                    if gpt_result.get("has_schedule"):
-                        web_url = msg.get("metadata", {}).get("webUrl")
-                        
-                        result = {
-                            **gpt_result,           # GPT가 추출한 title, start_time 등
-                            "web_url": web_url,     # 원본 webUrl
-                        }
+                    if result:
+                        metadata = msg.get("metadata", {})
+                        result.web_url = metadata.get("webUrl") or msg.get("webUrl")
                     await asyncio.sleep(1.5)
                     return result
             except Exception as e:
@@ -547,6 +544,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
 
                     schedule_dict = schedule_item.model_dump()
                     schedule_dict["source"] = extracted_data.source
+                    schedule_dict["web_url"] = extracted_data.web_url
 
                     try:
                         add_notice_to_calendar(target_email, schedule_dict)
