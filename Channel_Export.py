@@ -67,6 +67,6 @@ async def channel_export(TEAM_ID: str, CHANNEL_ID: str, last_sync_time, client: 
             new_messages.append(msg)
             
     except Exception as e:
-        logger.error(f"❌ [Graph API Error] 메시지 조회 실패: {e}")
+        logger.error(f"❌ [Graph API Error] 메시지 조회 실패 ({response.status_code}): {response.text}")
             
     return new_messages
