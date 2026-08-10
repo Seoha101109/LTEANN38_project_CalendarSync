@@ -116,6 +116,7 @@ def make_event_body(notice: dict):
     title = notice.get("title") or "팀즈 자동 등록 일정"
     summary = notice.get("summary") or notice.get("description") or ""
     source = notice.get("source") or ""
+    web_url = notice.get("web_url") or ""
 
     # 2. Location 방어 처리
     raw_location = notice.get("location")
@@ -177,7 +178,18 @@ def make_event_body(notice: dict):
     if end_datetime < start_datetime:
         end_datetime = start_datetime
 
-    # 5. MS Graph API Payload 생성
+    # 5. web url 확인
+    if web_url:
+        # 본문 하단에 원본 메시지 링크 HTML 생성
+        content += f"""
+        <br><br>
+        <hr>
+        <p><b>Teams 원본 메시지 바로가기:</b><br>
+        <a href="{web_url}" target="_blank">{web_url}</a>
+        </p>
+        """
+
+    # 6. MS Graph API Payload 생성
     event = {
         "subject": title,
         "body": {

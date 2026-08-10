@@ -471,11 +471,18 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         async def analyze_single_message(msg):
             try:
                 async with gpt_semaphore:
-                    result = await analyze_message_with_gpt(
+                    gpt_result = await analyze_message_with_gpt(
                         message_payload=msg,
                         graph_access_token=access_token,
                         target_user_name=target_user_name
                     )
+                    if gpt_result.get("has_schedule"):
+                        web_url = msg.get("metadata", {}).get("webUrl")
+                        
+                        result = {
+                            **gpt_result,           # GPT가 추출한 title, start_time 등
+                            "web_url": web_url,     # 원본 webUrl
+                        }
                     await asyncio.sleep(1.5)
                     return result
             except Exception as e:
@@ -677,7 +684,7 @@ async def auto_polling_sync_job():
         group_index = (now_utc.minute // POLLING_INTERVAL_MINUTES) % POLLS_PER_HOUR
         target_users = [
             user for idx, user in enumerate(all_users)
-            #if idx % POLLS_PER_HOUR == group_index
+            if idx % POLLS_PER_HOUR == group_index
         ]
 
         tasks = [sync_single_user(user.user_id, now_utc) for user in target_users]
