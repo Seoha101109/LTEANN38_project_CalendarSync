@@ -26,6 +26,8 @@ from database import engine, SessionLocal, get_db
 from calender_service import add_notice_to_calendar
 from Channel_Export import channel_export, get_graph_access_token
 from reset import resetdb
+from cachetools import TTLCache
+import gc
 
 
 # ------------------------------------------------------------------
@@ -63,7 +65,10 @@ DEFAULT_USER_GRADE = int(os.getenv("DEFAULT_USER_GRADE", "1"))
 load_dotenv()
 database.Base.metadata.create_all(bind=engine)
 
-RECENT_SYNC_REQUESTS = {}
+RECENT_SYNC_REQUESTS = TTLCache(
+    maxsize=100, 
+    ttl=DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS
+)
 
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
@@ -95,6 +100,20 @@ async def lifespan(app: FastAPI):
 
     scheduler.shutdown()
 
+http_client: httpx.AsyncClient = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global http_client
+    # 커넥션 풀 크기를 제한하여 OOM 방어
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    timeout = httpx.Timeout(15.0, connect=5.0)
+    http_client = httpx.AsyncClient(limits=limits, timeout=timeout)
+    
+    yield
+    
+    # 앱 종료 시만 깨끗하게 닫아줌
+    await http_client.aclose()
 
 app = FastAPI(title="Teams Calendar Auto-Polling & Extract API", lifespan=lifespan)
 
@@ -118,7 +137,7 @@ def calculate_grade_from_email(email: Optional[str], current_year: int) -> Optio
         grade = current_year - entry_year + 1
         
         # 정상적인 학년 범주(1~6학년)에 있는 경우만 반환
-        if 1 <= grade <= 6:
+        if 1 <= grade <= 3:
             return grade
     return None
 
@@ -172,37 +191,36 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
     headers = {"Authorization": f"Bearer {access_token}"}
     discovered_channels = []
 
-    async with httpx.AsyncClient(timeout=10.0) as http_client:
-        teams_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/joinedTeams"
-        try:
-            teams_res = await http_client.get(teams_url, headers=headers)
-            if teams_res.status_code != 200:
-                logger.error(f"❌ [Graph API Error] 팀 목록 조회 실패 (Status: {teams_res.status_code})")
-                return []
+    teams_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/joinedTeams"
+    try:
+        teams_res = await http_client.get(teams_url, headers=headers)
+        if teams_res.status_code != 200:
+            logger.error(f"❌ [Graph API Error] 팀 목록 조회 실패 (Status: {teams_res.status_code})")
+            return []
 
-            teams = teams_res.json().get("value", [])
+        teams = teams_res.json().get("value", [])
 
-            for team in teams:
-                team_id = team.get("id")
-                team_name = team.get("displayName", "알 수 없는 팀")
-                
-                channels_url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels"
-                ch_res = await http_client.get(channels_url, headers=headers)
+        for team in teams:
+            team_id = team.get("id")
+            team_name = team.get("displayName", "알 수 없는 팀")
+            
+            channels_url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels"
+            ch_res = await http_client.get(channels_url, headers=headers)
 
-                if ch_res.status_code == 200:
-                    channels = ch_res.json().get("value", [])
-                    for ch in channels:
-                        discovered_channels.append({
-                            "team_id": team_id,
-                            "team_name": team_name,
-                            "channel_id": ch.get("id"),
-                            "channel_name": ch.get("displayName")
-                        })
-                else:
-                    logger.warning(f"팀 채널 조회 실패 ({ch_res.status_code})")
+            if ch_res.status_code == 200:
+                channels = ch_res.json().get("value", [])
+                for ch in channels:
+                    discovered_channels.append({
+                        "team_id": team_id,
+                        "team_name": team_name,
+                        "channel_id": ch.get("id"),
+                        "channel_name": ch.get("displayName")
+                    })
+            else:
+                logger.warning(f"팀 채널 조회 실패 ({ch_res.status_code})")
 
-        except Exception as e:
-            logger.error(f"❌ [Graph API Exception] 팀/채널 탐지 중 에러 발생: {e}")
+    except Exception as e:
+        logger.error(f"❌ [Graph API Exception] 팀/채널 탐지 중 에러 발생: {e}")
 
     return discovered_channels
     
@@ -216,37 +234,36 @@ async def send_teams_reply(service_url: str, conversation_id: str, text: str):
         logger.warning("⚠️ service_url 또는 conversation_id가 없어 메시지를 전송하지 못했습니다.")
         return
 
-    # async with 블록을 먼저 열어서 http_client를 생성해야 합니다!
-    async with httpx.AsyncClient(timeout=10.0) as http_client:
-        # 1. http_client가 생성된 후 토큰 발급 함수 호출
-        bot_token = await get_bot_token(http_client)
-        if not bot_token:
-            logger.error("❌ Bot Token 발급 실패로 메시지 발송 중단")
-            return
 
-        # 2. 메시지 전송 URL 및 헤더 설정
-        base_url = service_url.rstrip("/")
-        reply_url = f"{base_url}/v3/conversations/{conversation_id}/activities"
+    # 1. http_client가 생성된 후 토큰 발급 함수 호출
+    bot_token = await get_bot_token(http_client)
+    if not bot_token:
+        logger.error("❌ Bot Token 발급 실패로 메시지 발송 중단")
+        return
 
-        headers = {
-            "Authorization": f"Bearer {bot_token}",
-            "Content-Type": "application/json"
-        }
+    # 2. 메시지 전송 URL 및 헤더 설정
+    base_url = service_url.rstrip("/")
+    reply_url = f"{base_url}/v3/conversations/{conversation_id}/activities"
 
-        payload = {
-            "type": "message",
-            "text": text
-        }
+    headers = {
+        "Authorization": f"Bearer {bot_token}",
+        "Content-Type": "application/json"
+    }
 
-        # 3. 메시지 발송
-        try:
-            res = await http_client.post(reply_url, headers=headers, json=payload)
-            if res.status_code in (200, 201, 202):
-                logger.info(f"✅ [Teams 메시지 발송 성공]")
-            else:
-                logger.error(f"❌ [Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
-        except Exception as e:
-            logger.error(f"❌ [Teams 메시지 발송 예외]: {e}")
+    payload = {
+        "type": "message",
+        "text": text
+    }
+
+    # 3. 메시지 발송
+    try:
+        res = await http_client.post(reply_url, headers=headers, json=payload)
+        if res.status_code in (200, 201, 202):
+            logger.info(f"✅ [Teams 메시지 발송 성공]")
+        else:
+            logger.error(f"❌ [Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
+    except Exception as e:
+        logger.error(f"❌ [Teams 메시지 발송 예외]: {e}")
             
 # ------------------------------------------------------------------
 # [AI Helper Function] OpenAI GPT-4o-mini 멀티모달 분석
@@ -268,20 +285,23 @@ async def analyze_message_with_gpt(
         
         if graph_access_token:
             img_tags = soup.find_all("img")
-            async with httpx.AsyncClient(timeout=10.0) as http_client:
-                headers = {"Authorization": f"Bearer {graph_access_token}"}
-                for img in img_tags:
-                    img_url = img.get("src")
-                    if img_url and "hostedContents" in img_url:
-                        try:
-                            res = await http_client.get(img_url, headers=headers, follow_redirects=True)
-                            if res.status_code == 200:
-                                b64_img = base64.b64encode(res.content).decode('utf-8')
-                                image_base64_list.append(b64_img)
-                        except Exception as e:
-                            logger.warning(f"이미지 다운로드 실패: {e}")
+            headers = {"Authorization": f"Bearer {graph_access_token}"}
+            for img in img_tags:
+                img_url = img.get("src")
+                if img_url and "hostedContents" in img_url:
+                    try:
+                        res = await http_client.get(img_url, headers=headers, follow_redirects=True)
+                        if res.status_code == 200:
+                            b64_img = base64.b64encode(res.content).decode('utf-8')
+                            image_base64_list.append(b64_img)
+                    except Exception as e:
+                        logger.warning(f"이미지 다운로드 실패: {e}")
 
         clean_body = soup.get_text(separator=" ", strip=True)
+        
+        # BeautifulSoup 트리 명시적 해제
+        soup.decompose() 
+        del soup
     else:
         clean_body = raw_content
 
@@ -409,15 +429,14 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         target_user_name = None
         
         # MS Graph API로부터 유저 메일 및 이름 조회
-        async with httpx.AsyncClient(timeout=10.0) as http_client:
-            profile_res = await http_client.get(
-                f"https://graph.microsoft.com/v1.0/users/{user_id}",
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-            if profile_res.status_code == 200:
-                pdata = profile_res.json()
-                target_email = pdata.get("mail") or pdata.get("userPrincipalName")
-                target_user_name = pdata.get("displayName")
+        profile_res = await http_client.get(
+            f"https://graph.microsoft.com/v1.0/users/{user_id}",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        if profile_res.status_code == 200:
+            pdata = profile_res.json()
+            target_email = pdata.get("mail") or pdata.get("userPrincipalName")
+            target_user_name = pdata.get("displayName")
 
         calculated_grade = calculate_grade_from_email(target_email, now_utc.year)
         user_grade = getattr(user, "grade", None) or calculated_grade or DEFAULT_USER_GRADE
@@ -471,7 +490,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             channel_written = 0
             
             # 🚨 [수정 1] 동기 함수를 안전하게 비동기 스레드로 실행하여 이벤트 루프 차단 방지
-            raw_messages = await channel_export(ch["team_id"], ch["channel_id"], last_sync_time, access_token)
+            raw_messages = await channel_export(ch["team_id"], ch["channel_id"], last_sync_time, access_token, http_client)
             if not raw_messages:
                 return 0
 
@@ -668,7 +687,22 @@ async def auto_polling_sync_job():
         await asyncio.gather(*tasks, return_exceptions=True)
 
     finally:
+        # 1. DB 세션 닫기
         db.close()
+        
+        # 2. 대용량 참조 변수 제거
+        if 'all_users' in locals():
+            del all_users
+        if target_users:
+            del target_users
+        if tasks:
+            del tasks
+        if 'results' in locals():
+            del results
+
+        # 3. 강제 가비지 컬렉션
+        gc.collect()
+        logger.info("🧹 [Polling Cleanup] 백그라운드 메모리 정리 완료")
 
 # ------------------------------------------------------------------
 # [Cron Job] 6개월 이상 휴면 계정 자동 파기 (개인정보보호법 준수)

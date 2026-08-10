@@ -34,7 +34,7 @@ def get_graph_access_token():
     return token_result["access_token"]
 
 
-async def channel_export(TEAM_ID: str, CHANNEL_ID: str, last_sync_time, access_token: str = None):
+async def channel_export(TEAM_ID: str, CHANNEL_ID: str, last_sync_time, client: httpx.AsyncClient, access_token: str = None):
     """채널 메시지를 가져오되, 마지막 동기화된 시점을 만나면 즉시 중단합니다."""
     if not access_token:
         access_token = get_graph_access_token()
@@ -47,27 +47,26 @@ async def channel_export(TEAM_ID: str, CHANNEL_ID: str, last_sync_time, access_t
     # 1. $filter 제거하고 기본 최신순($top=20 또는 50)으로 요청
     url = f"https://graph.microsoft.com/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages?$top=50"
     
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            response = await client.get(
-                url, 
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-            response.raise_for_status()
-            data = response.json()
-            messages = data.get("value", [])
+    try:
+        response = await client.get(
+            url, 
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        response.raise_for_status()
+        data = response.json()
+        messages = data.get("value", [])
+        
+        for msg in messages:
+            # 메시지 작성 시간 파싱 (Graph API 시간 형식 대응)
+            created_dt = datetime.fromisoformat(msg['createdDateTime'].replace("Z", "+00:00"))
             
-            for msg in messages:
-                # 메시지 작성 시간 파싱 (Graph API 시간 형식 대응)
-                created_dt = datetime.fromisoformat(msg['createdDateTime'].replace("Z", "+00:00"))
+            # 2. 핵심: 이미 동기화된 시간보다 과거 메시지를 만나면 탐색 즉시 중단 (Early Exit)
+            if created_dt <= last_sync_time:
+                break
                 
-                # 2. 핵심: 이미 동기화된 시간보다 과거 메시지를 만나면 탐색 즉시 중단 (Early Exit)
-                if created_dt <= last_sync_time:
-                    break
-                    
-                new_messages.append(msg)
-                
-        except Exception as e:
-            logger.error(f"❌ [Graph API Error] 메시지 조회 실패: {e}")
+            new_messages.append(msg)
+            
+    except Exception as e:
+        logger.error(f"❌ [Graph API Error] 메시지 조회 실패: {e}")
             
     return new_messages
