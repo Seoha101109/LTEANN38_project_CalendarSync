@@ -183,6 +183,7 @@ def analyze_message_with_gpt(
 - 예시: "6/5 발표, 6/12 보고서 제출" -> schedules에 2개 객체 생성
 
 [3. 제목 및 분류 규칙]
+- 일정의 'title(subject)'은 반드시 사람이 이해할 수 있는 요약된 공지/과제 명칭이어야 함.
 - 제목(`title`) 기본 형태: `[카테고리/과목] 핵심 내용` (예: [물리학] 물리학 성적 배부`)
 - 제목이나 본문에 과목명이 포함되어 있으면 과목명을 최우선 구분자로 사용.
 
@@ -193,7 +194,7 @@ def analyze_message_with_gpt(
   3) title: 제목 끝에 반드시 '#마감' 태그 추가 ([1학년] 현송장학금 신청 마감#마감)
   
 [5. 세부 추출 규칙]
-- 일시(`start_time`, `end_time`): 메시지 작성 시점 기준 ISO 8601 변환. 시간을 모르는 당일 일정은 하루 종일(All-day) 이벤트로 처리.
+- 일시(`start_time`, `end_time`): 시간을 모르는 당일 일정은 하루 종일(All-day) 이벤트로 처리.
 - 작성일을 날짜 계산에 사용하는 유일한 경우는 상대적인 날짜 표현이 있을 경우이며, 절대로 작성일을 시작일 또는 종료일로 판단해선 안돼.
 - **학년 판단 기준(매우 중요)**: 특정 학년(1학년, 신입생, 졸업반 등) 명시 시 반드시 'target_grades'에 명시된 학년 입력, 명시된 학년 없거나 전교생 대상이면 'target_grades'는 [] 처리.
 - 수신자 검증: 이미지/본문에 캘린더 주인과 다른 타인의 이름이 지정된 개인 일정이면 무조건 has_schedule=False 처리.
@@ -249,37 +250,7 @@ def analyze_message_with_gpt(
 # ==========================================
 
 if __name__ == "__main__":
-    msg = {
-    'id': '1000000000000',
-    'replyToId': None,
-    'etag': '1000000000000',
-    'messageType': 'message',
-    'createdDateTime': '2026-08-01T00:00:00.000Z',
-    'lastModifiedDateTime': '2026-08-01T00:00:00.000Z',
-    'lastEditedDateTime': None,
-    'deletedDateTime': None,
-    'subject': '(서울신문 주관)제 1회 K-과학인재아카데미 고등학생 캠프',
-    'summary': None,
-    'chatId': None,
-    'importance': 'normal',
-    'locale': 'en-us',
-    'webUrl': f'https://teams.microsoft.com/l/message/{CHANNEL_ID}/1000000000000?groupId={TEAM_ID}&tenantId={TENANT_ID}&createdTime=1000000000000&parentMessageId=1000000000000',
-    'policyViolation': None,
-    'eventDetail': None,
-    'from': {'application': None,
-             'device': None,
-             'user': {'@odata.type': '#microsoft.graph.teamworkUserIdentity',
-                      'id': f'{USER_ID}',
-                      'displayName': f'{USER_NAME}',
-                      'userIdentityType': 'aadUser',
-                      'tenantId': f'{TENANT_ID}'}},
-    'body': {'contentType': 'html',
-             'content': f'<p>서울신문에서 과학기술분야 미래인재 양성과 창의적 연구생태계 조성을 위해 K-과학인재 아카데미-고등학생 캠프를 운영합니다.</p>\n<p>이공계 분야에 관심이 많은 국내 고등학생을 대상으로 서울대학교 내 연구실에서 실험실습을 하고, 멘토링 프로그램을 제공하는 등 다양한 과학프로그램을 마련하였다고 합니다.</p>\n<p>관심이 있는 학생은 아래 포스터를 참고하여 지원하세요.</p>\n<p><img src="https://graph.microsoft.com/v1.0/teams/{TEAM_ID}/channels/{CHANNEL_ID}/messages/1000000000000/hostedContents/aWQ9eF8wLXNrci1kMS1iZjkxNWIzNzAyNWQ3N2VmZGJlNDc4MjA3MWMyNDk2ZCx0eXBlPTEsdXJsPWh0dHBzOi8va3ItcHJvZC5hc3luY2d3LnRlYW1zLm1pY3Jvc29mdC5jb20vdjEvb2JqZWN0cy8wLXNrci1kMS1iZjkxNWIzNzAyNWQ3N2VmZGJlNDc4MjA3MWMyNDk2ZC92aWV3cy9pbWdv/$value" width="722" height="175" alt="이미지" itemid="0-skr-d1-bf915b37025d77efdbe4782071c2496d"></p>'},
-    'channelIdentity': {'teamId': f'{TEAM_ID}',
-                        'channelId': f'{CHANNEL_ID}'},
-    'attachments': [],
-    'mentions': [],
-    'reactions': []}
+    msg = os.environ.get("raw_msg")
     
     access_token = get_graph_access_token()
     extracted_data: ExtractedSchedule = analyze_message_with_gpt(

@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import msal
 import requests
 import logging
-import json
 
 load_dotenv()
 
@@ -183,7 +182,7 @@ def make_event_body(notice: dict):
     if web_url:
         logger.info(f"🎯 [Calendar Service] web_url 정상 수신: {web_url}")
         # 본문 하단에 원본 메시지 링크 HTML 생성
-        content += f'<div><br><br>--------------------<br><b>Teams 원본 메시지 바로가기</b><br><a href="{html.escape(str(web_url))}">Microsoft Teams 접속</a></div>'
+        content += f'<div><br><br>--------------------<br><b>Teams 원본 메시지 바로가기</b><br><a href="{web_url}">Microsoft Teams 접속</a></div>'
         
         
     # 6. MS Graph API Payload 생성
@@ -239,7 +238,7 @@ def add_notice_to_calendar(user_email: str, notice_data: dict) -> bool:
             continue
 
         url = f"https://graph.microsoft.com/v1.0/users/{user_email}/events"
-        logger.info(f"📡 [Graph API Payload Body]:\n{json.dumps(event_body['body'], ensure_ascii=False, indent=2)}")
+
         response = requests.post(url, headers=headers, json=event_body)
 
         if response.status_code in (200, 201):
