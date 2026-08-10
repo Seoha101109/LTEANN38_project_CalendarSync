@@ -477,6 +477,10 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                         graph_access_token=access_token,
                         target_user_name=target_user_name
                     )
+                    # 💡 [체크포인트 1] analyze_message_with_gpt 자체가 None을 줬는지 확인
+                    if result is None:
+                        logger.warning(f"⚠️ analyze_message_with_gpt 가 None을 반환함 (Msg ID: {msg.get('id')})")
+                        return None 
                     if result:
                         metadata = msg.get("metadata", {})
                         extracted_url = metadata.get("webUrl") or msg.get("webUrl")
@@ -485,8 +489,8 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                             logger.info(f"🔗 [URL 추출 성공] {extracted_url}...")
                         else:
                             logger.warning(f"⚠️ [URL 추출 실패]")
-                            await asyncio.sleep(1.5)
-                            return result
+                        await asyncio.sleep(1.5)
+                        return result
             except Exception as e:
                 logger.error(f"❌ 메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
                 return None
@@ -581,6 +585,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         )
         db.add(log_entry)
         db.commit()
+        db.refresh(log_entry)
 
         logger.info(f"✅ [Sync 완료] User({anon_user_id}): 총 {written_count}건 등록")
         return written_count
@@ -691,8 +696,8 @@ async def auto_polling_sync_job():
         group_index = (now_utc.minute // POLLING_INTERVAL_MINUTES) % POLLS_PER_HOUR
         target_users = [
             user for idx, user in enumerate(all_users)
-            #if idx == 5
-            if idx % POLLS_PER_HOUR == group_index
+            if idx == 0
+            #if idx % POLLS_PER_HOUR == group_index
         ]
 
         tasks = [sync_single_user(user.user_id, now_utc) for user in target_users]
