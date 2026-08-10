@@ -17,7 +17,7 @@ from database import SessionLocal
 import models
 
 # 타겟 사용자 익명 ID 목록
-target_user_ids = ["ca3bcf42", "d1f0eada", "7290b082"] 
+target_user_ids = ["d1f0eada"] 
 
 db = SessionLocal()
 

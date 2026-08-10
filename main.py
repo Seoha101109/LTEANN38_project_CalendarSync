@@ -218,7 +218,7 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
                 logger.warning(f"팀 채널 조회 실패 ({ch_res.status_code})")
 
     except Exception as e:
-        logger.error(f"❌ [Graph API Exception] 팀/채널 탐지 중 에러 발생: {e}")
+        logger.error(f"❌ [Graph API Exception] 팀/채널 탐지 중 에러 발생: {e}",exc_info=True)
 
     return discovered_channels
     
