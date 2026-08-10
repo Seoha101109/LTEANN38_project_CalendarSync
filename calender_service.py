@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import msal
 import requests
 import logging
+import json
 
 load_dotenv()
 
@@ -237,7 +238,7 @@ def add_notice_to_calendar(user_email: str, notice_data: dict) -> bool:
             continue
 
         url = f"https://graph.microsoft.com/v1.0/users/{user_email}/events"
-
+        logger.info(f"📡 [Graph API Payload Body]:\n{json.dumps(event_body['body'], ensure_ascii=False, indent=2)}")
         response = requests.post(url, headers=headers, json=event_body)
 
         if response.status_code in (200, 201):
