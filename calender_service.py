@@ -180,6 +180,7 @@ def make_event_body(notice: dict):
 
     # 5. web url 확인
     if web_url:
+        logger.info(f"🎯 [Calendar Service] web_url 정상 수신: {web_url}")
         # 본문 하단에 원본 메시지 링크 HTML 생성
         content += f"""
         <br><br>

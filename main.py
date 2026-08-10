@@ -479,9 +479,14 @@ async def sync_single_user(user_id: str, now_utc: datetime):
                     )
                     if result:
                         metadata = msg.get("metadata", {})
-                        result.web_url = metadata.get("webUrl") or msg.get("webUrl")
-                    await asyncio.sleep(1.5)
-                    return result
+                        extracted_url = metadata.get("webUrl") or msg.get("webUrl")
+                        result.web_url = extracted_url
+                        if extracted_url:
+                            logger.info(f"🔗 [URL 추출 성공] {extracted_url}...")
+                        else:
+                            logger.warning(f"⚠️ [URL 추출 실패]")
+                            await asyncio.sleep(1.5)
+                            return result
             except Exception as e:
                 logger.error(f"❌ 메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
                 return None
@@ -544,7 +549,11 @@ async def sync_single_user(user_id: str, now_utc: datetime):
 
                     schedule_dict = schedule_item.model_dump()
                     schedule_dict["source"] = extracted_data.source
-                    schedule_dict["web_url"] = extracted_data.web_url
+                    target_web_url = extracted_data.web_url
+                    
+                    schedule_dict["web_url"] = target_web_url
+                    
+                    logger.info(f"📦 [캘린더 전달 대기] Title: '{schedule_dict.get('title')}' | web_url: {target_web_url}")
 
                     try:
                         add_notice_to_calendar(target_email, schedule_dict)

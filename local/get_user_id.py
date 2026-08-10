@@ -33,3 +33,17 @@ def get_my_user_id():
     # 2. 이메일로 User ID (Object ID) 조회
     user_url = f"https://graph.microsoft.com/v1.0/users/{MY_EMAIL}"
     user_res = httpx.get(user_url, headers=headers)
+    
+    if user_res.status_code == 200:
+        user_info = user_res.json()
+        print("=" * 50)
+        print("🎉 내 user_id (Azure AD Object ID)를 찾았습니다!")
+        print(f"📌 Name    : {user_info.get('displayName')}")
+        print(f"📌 Email   : {user_info.get('mail') or user_info.get('userPrincipalName')}")
+        print(f"📌 user_id : {user_info.get('id')}")  # 👈 이 값이 user_id (GUID)
+        print("=" * 50)
+    else:
+        print("❌ 사용자 조회 실패:", user_res.text)
+
+if __name__ == "__main__":
+    get_my_user_id()
