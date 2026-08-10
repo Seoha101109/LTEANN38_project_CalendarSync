@@ -682,7 +682,7 @@ async def auto_polling_sync_job():
         group_index = (now_utc.minute // POLLING_INTERVAL_MINUTES) % POLLS_PER_HOUR
         target_users = [
             user for idx, user in enumerate(all_users)
-            if idx == 6
+            if idx == 5
             #if idx % POLLS_PER_HOUR == group_index
         ]
 
