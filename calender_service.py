@@ -185,7 +185,7 @@ def make_event_body(notice: dict):
         <br><br>
         <hr>
         <p><b>Teams 원본 메시지 바로가기:</b><br>
-        <a href="{web_url}" target="_blank">{web_url}</a>
+        <a href="{web_url}" target="_blank">Microsoft Teams</a>
         </p>
         """
 
