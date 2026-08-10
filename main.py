@@ -77,8 +77,17 @@ client = AsyncOpenAI(
 scheduler = AsyncIOScheduler()
 
 #FastAPI app
+
+http_client: httpx.AsyncClient = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global http_client
+    # 커넥션 풀 크기를 제한하여 OOM 방어
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    timeout = httpx.Timeout(15.0, connect=5.0)
+    http_client = httpx.AsyncClient(limits=limits, timeout=timeout)
+    
     scheduler.add_job(
         auto_polling_sync_job, 
         'cron', 
@@ -99,21 +108,9 @@ async def lifespan(app: FastAPI):
     yield  # <-- 서버가 정상 구동되는 시점
 
     scheduler.shutdown()
-
-http_client: httpx.AsyncClient = None
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global http_client
-    # 커넥션 풀 크기를 제한하여 OOM 방어
-    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
-    timeout = httpx.Timeout(15.0, connect=5.0)
-    http_client = httpx.AsyncClient(limits=limits, timeout=timeout)
-    
-    yield
-    
-    # 앱 종료 시만 깨끗하게 닫아줌
     await http_client.aclose()
+
+
 
 app = FastAPI(title="Teams Calendar Auto-Polling & Extract API", lifespan=lifespan)
 
