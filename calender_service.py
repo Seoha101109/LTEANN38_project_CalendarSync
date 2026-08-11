@@ -182,6 +182,7 @@ def make_event_body(notice: dict):
     if web_url:
         logger.info(f"🎯 [Calendar Service] web_url 정상 수신: {web_url}")
         # 본문 하단에 원본 메시지 링크 HTML 생성
+        content += f'<br><a href="{web_url}">일정 펼치고 여길 클릭해서 게시물로 이동</a><br>'
         
     # 6. MS Graph API Payload 생성
     event = {
