@@ -75,7 +75,14 @@ client = AsyncOpenAI(
     timeout=60.0,
     max_retries=1
     )
-scheduler = AsyncIOScheduler()
+
+job_defaults = {
+    'coalesce': False,
+    'max_instances': 10,        # 동시에 작업 10개
+    'misfire_grace_time': 300
+}
+
+scheduler = AsyncIOScheduler(job_defaults=job_defaults)
 
 #FastAPI app
 
@@ -416,7 +423,7 @@ async def analyze_message_with_gpt(
 # ------------------------------------------------------------------
 # [User Sync Logic] 유저 동기화 & 학년 동적 필터링 적용
 # ------------------------------------------------------------------
-async def sync_single_user(user_id: str, now_utc: datetime):
+async def async_single_user(user_id: str, now_utc: datetime):
     db = SessionLocal()
     anon_user_id = get_anonymous_id(user_id)
     try:
@@ -606,7 +613,10 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         return 0
     finally:
         db.close()
-        
+
+def sync_single_user(user_id: str, now_utc: datetime):
+    asyncio.run(async_single_user(user_id, now_utc))
+    
 # ------------------------------------------------------------------
 # [FastAPI Router] Teams Webhook Endpoint (대화 및 이벤트 수신)
 # ------------------------------------------------------------------
@@ -727,7 +737,7 @@ async def auto_polling_sync_job():
             if idx % POLLS_PER_HOUR == group_index
         ]
 
-        tasks = [sync_single_user(user.user_id, now_utc) for user in target_users]
+        tasks = [async_single_user(user.user_id, now_utc) for user in target_users]
         await asyncio.gather(*tasks, return_exceptions=True)
 
     finally:
