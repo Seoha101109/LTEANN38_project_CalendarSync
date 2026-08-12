@@ -13,3 +13,4 @@ apscheduler
 tenacity
 tiktoken
 cachetools
+httpx
