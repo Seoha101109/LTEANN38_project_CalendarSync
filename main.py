@@ -445,16 +445,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             db.commit()
 
         logger.info(f"👤 [Sync 시작] User({anon_user_id}), 학년: {user_grade}")
-        
-        last_log = (
-            db.query(models.CalendarEventLog)
-            .filter(
-                models.CalendarEventLog.user_id == anon_user_id,
-                models.CalendarEventLog.change_type == "auto_polling_sync"
-            )
-            .order_by(desc(models.CalendarEventLog.last_updated_time))
-            .first()
-        )
+    
 
         sync_state = db.query(models.UserSyncState).filter(
             models.UserSyncState.user_id == anon_user_id
