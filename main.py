@@ -605,7 +605,8 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         )
         db.add(log_entry)
         db.commit()
-        db.refresh(log_entry, sync_state)
+        db.refresh(log_entry)
+        db.refresh(sync_state)
 
         logger.info(f"✅ [Sync 완료] User({anon_user_id}): 총 {written_count}건 등록 | Log DB ID: {log_entry.id}")
         return written_count
