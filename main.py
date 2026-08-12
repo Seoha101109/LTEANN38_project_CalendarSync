@@ -72,7 +72,8 @@ RECENT_SYNC_REQUESTS = TTLCache(
 
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
-    max_retries=0
+    timeout=60.0,
+    max_retries=1
     )
 scheduler = AsyncIOScheduler()
 

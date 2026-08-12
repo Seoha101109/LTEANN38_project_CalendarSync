@@ -18,7 +18,7 @@ import models
 
 # 타겟 사용자 익명 ID 목록
 target_user_ids = ["65b1f819"] 
-repeat_number = 18
+repeat_number = 2
 
 def del_log(db, target_user_ids: list):
     try:
@@ -50,10 +50,9 @@ def del_log(db, target_user_ids: list):
         
 if __name__ == "__main__":
     db = SessionLocal()
-    for i in range(repeat_number):
-        try:
-            for i in range(repeat_number):
-                print(f"\n--- [{i+1}/{repeat_number}회차 삭제 작업] ---")
-                del_log(db, target_user_ids)
-        finally:
-            db.close()
+    try:
+        for i in range(repeat_number):
+            print(f"\n--- [{i+1}/{repeat_number}회차 삭제 작업] ---")
+            del_log(db, target_user_ids)
+    finally:
+        db.close()
