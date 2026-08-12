@@ -587,7 +587,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         db.commit()
         db.refresh(log_entry)
 
-        logger.info(f"✅ [Sync 완료] User({anon_user_id}): 총 {written_count}건 등록")
+        logger.info(f"✅ [Sync 완료] User({anon_user_id}): 총 {written_count}건 등록 | Log DB ID: {log_entry.id}")
         return written_count
 
     except Exception as e:
@@ -696,8 +696,8 @@ async def auto_polling_sync_job():
         group_index = (now_utc.minute // POLLING_INTERVAL_MINUTES) % POLLS_PER_HOUR
         target_users = [
             user for idx, user in enumerate(all_users)
-            #if idx == 0
-            if idx % POLLS_PER_HOUR == group_index
+            if idx == 9
+            #if idx % POLLS_PER_HOUR == group_index
         ]
 
         tasks = [sync_single_user(user.user_id, now_utc) for user in target_users]

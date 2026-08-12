@@ -19,4 +19,4 @@ if __name__ == "__main__":
     sha256_result = generate_sha256(target_string)
 
     print(f"원본 텍스트: {target_string}")
-    print(f"SHA-256: {sha256_result}")
+    print(f"SHA-256: {sha256_result[:8]}")

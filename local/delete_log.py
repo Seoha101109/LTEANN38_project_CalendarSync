@@ -17,35 +17,43 @@ from database import SessionLocal
 import models
 
 # 타겟 사용자 익명 ID 목록
-target_user_ids = ["d1f0eada"] 
+target_user_ids = ["65b1f819"] 
+repeat_number = 18
 
-db = SessionLocal()
-
-try:
-    for user_id in target_user_ids:
-        # 해당 유저의 가장 최근 auto_polling_sync 로그 조회
-        latest_log = (
-            db.query(models.CalendarEventLog)
-            .filter(
-                models.CalendarEventLog.user_id == user_id,
-                models.CalendarEventLog.change_type == "auto_polling_sync"
+def del_log(db, target_user_ids: list):
+    try:
+        for user_id in target_user_ids:
+            # 해당 유저의 가장 최근 auto_polling_sync 로그 조회
+            latest_log = (
+                db.query(models.CalendarEventLog)
+                .filter(
+                    models.CalendarEventLog.user_id == user_id,
+                    models.CalendarEventLog.change_type == "auto_polling_sync"
+                )
+                .order_by(models.CalendarEventLog.last_updated_time.desc())
+                .first()
             )
-            .order_by(models.CalendarEventLog.last_updated_time.desc())
-            .first()
-        )
 
-        if latest_log:
-            print(f"🗑️ [삭제 대상] User: {user_id} | Time: {latest_log.last_updated_time} | Resource: {latest_log.resource_id}")
-            db.delete(latest_log)
-            print(f"✅ User {user_id}의 최근 Sync 로그 삭제 완료")
-        else:
-            print(f"⚠️ User {user_id}의 Sync 로그를 찾을 수 없습니다.")
+            if latest_log:
+                print(f"🗑️ [삭제 대상] User: {user_id} | Time: {latest_log.last_updated_time} | Resource: {latest_log.resource_id}")
+                db.delete(latest_log)
+                print(f"✅ User {user_id}의 최근 Sync 로그 삭제 완료")
+            else:
+                print(f"⚠️ User {user_id}의 Sync 로그를 찾을 수 없습니다.")
 
-    db.commit()
-    print("🎉 모든 로그 삭제 처리가 완료되었습니다!")
+        db.commit()
+        print("🎉 모든 로그 삭제 처리가 완료되었습니다!")
 
-except Exception as e:
-    db.rollback()
-    print(f"❌ 에러 발생: {e}")
-finally:
-    db.close()
+    except Exception as e:
+        db.rollback()
+        print(f"❌ 에러 발생: {e}")
+        
+if __name__ == "__main__":
+    db = SessionLocal()
+    for i in range(repeat_number):
+        try:
+            for i in range(repeat_number):
+                print(f"\n--- [{i+1}/{repeat_number}회차 삭제 작업] ---")
+                del_log(db, target_user_ids)
+        finally:
+            db.close()
