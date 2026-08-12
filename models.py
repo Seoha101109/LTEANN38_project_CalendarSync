@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 from database import Base
+from datetime import datetime, timezone
 
 class CalendarEventLog(Base):
     __tablename__ = "calendar_event_logs"
@@ -28,3 +29,10 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     conversation_id = Column(String, unique=True, index=True)
     service_url = Column(String, nullable=True)
+    
+class UserSyncState(Base):
+    __tablename__ = "user_sync_states"
+
+    user_id = Column(String, primary_key=True, index=True) # 익명 유저 ID
+    last_synced_at = Column(DateTime(timezone=True), nullable=False) # 마지막 성공 동기화 시각
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

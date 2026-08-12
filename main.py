@@ -456,8 +456,27 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             .first()
         )
 
-        if last_log and last_log.last_updated_time:
-            log_time = last_log.last_updated_time
+        sync_state = db.query(models.UserSyncState).filter(
+            models.UserSyncState.user_id == anon_user_id
+        ).first()
+
+        if sync_state and sync_state.last_synced_at:
+            log_time = sync_state.last_synced_at
+        else:
+            # 신규 테이블에 데이터가 없는 기존 유저 마이그레이션 (기존 로그 참조)
+            last_log = (
+                db.query(models.CalendarEventLog)
+                .filter(
+                    models.CalendarEventLog.user_id == anon_user_id,
+                    models.CalendarEventLog.change_type == "auto_polling_sync"
+                )
+                .order_by(desc(models.CalendarEventLog.last_updated_time))
+                .first()
+            )
+            log_time = last_log.last_updated_time if (last_log and last_log.last_updated_time) else None
+
+        # Timezone 보정 및 last_sync_time 최종 결정
+        if log_time:
             if log_time.tzinfo is None:
                 log_time = log_time.replace(tzinfo=timezone.utc)
             last_sync_time = log_time
@@ -578,6 +597,15 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         # 예외 객체를 제외하고 숫자만 합산
         written_count = sum(r for r in results if isinstance(r, int))
 
+        if not sync_state:
+            sync_state = models.UserSyncState(
+                user_id=anon_user_id,
+                last_synced_at=now_utc
+            )
+            db.add(sync_state)
+        else:
+            sync_state.last_synced_at = now_utc
+        
         log_entry = models.CalendarEventLog(
             user_id=anon_user_id,
             change_type="auto_polling_sync",
@@ -586,7 +614,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
         )
         db.add(log_entry)
         db.commit()
-        db.refresh(log_entry)
+        db.refresh(log_entry, sync_state)
 
         logger.info(f"✅ [Sync 완료] User({anon_user_id}): 총 {written_count}건 등록 | Log DB ID: {log_entry.id}")
         return written_count
@@ -624,6 +652,7 @@ async def teams_event_webhook(
         if user_id:
             anon_user_id = get_anonymous_id(user_id)
             now = datetime.now(timezone.utc).timestamp()
+            now_dt = datetime.now(timezone.utc)
             last_sync_time = RECENT_SYNC_REQUESTS.get(user_id, 0)
             
             if now - last_sync_time < DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS:
@@ -631,8 +660,9 @@ async def teams_event_webhook(
                 return {"status": "ok", "message": "duplicate_event_ignored"}
 
             RECENT_SYNC_REQUESTS[user_id] = now
+            
+            #유저 등록
             existing_user = db.query(models.User).filter(models.User.user_id == user_id).first()
-
             if not existing_user:
                 new_user = models.User(user_id=user_id, conversation_id=user_conversation_id, service_url=service_url)
                 db.add(new_user)
@@ -644,12 +674,27 @@ async def teams_event_webhook(
                     existing_user.service_url = service_url
                 logger.info(f"🔄 앱 재설치 감지: User({anon_user_id})")
 
+            #sync tracker 업뎃
+            sync_state = db.query(models.UserSyncState).filter(models.UserSyncState.user_id == anon_user_id).first()
+            if not sync_state:
+                # 신규 설치인 경우 생성
+                sync_state = models.UserSyncState(
+                    user_id=anon_user_id, 
+                    last_synced_at=now_dt
+                )
+                db.add(sync_state)
+            else:
+                # 재설치인 경우 기준 시각 업데이트
+                sync_state.last_synced_at = now_dt
+            
+            #로그
             install_log = models.CalendarEventLog(
                 user_id=anon_user_id,
                 change_type="app_installed",
                 resource_id=data.get("id")
             )
             db.add(install_log)
+            
             db.commit()
 
             # 웰컴 메시지 전송 (MS 검증 항목: Bot welcome message 통과용)
