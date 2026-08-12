@@ -451,20 +451,7 @@ async def sync_single_user(user_id: str, now_utc: datetime):
             models.UserSyncState.user_id == anon_user_id
         ).first()
 
-        if sync_state and sync_state.last_synced_at:
-            log_time = sync_state.last_synced_at
-        else:
-            # 신규 테이블에 데이터가 없는 기존 유저 마이그레이션 (기존 로그 참조)
-            last_log = (
-                db.query(models.CalendarEventLog)
-                .filter(
-                    models.CalendarEventLog.user_id == anon_user_id,
-                    models.CalendarEventLog.change_type == "auto_polling_sync"
-                )
-                .order_by(desc(models.CalendarEventLog.last_updated_time))
-                .first()
-            )
-            log_time = last_log.last_updated_time if (last_log and last_log.last_updated_time) else None
+        log_time = sync_state.last_synced_at
 
         # Timezone 보정 및 last_sync_time 최종 결정
         if log_time:
