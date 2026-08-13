@@ -31,8 +31,10 @@ import gc
 
 
 # [LOGGER & ANONYMIZATION]
+'''
 logger = logging.getLogger("ScheduleBot")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+'''
 
 def get_anonymous_id(identity_string: Optional[str]) -> str:
     """실명, 유저 ID, 이메일 등을 SHA-256 해시 기반 8자리 익명 ID로 변환 (로그 개인정보 보호)"""
@@ -42,7 +44,9 @@ def get_anonymous_id(identity_string: Optional[str]) -> str:
 
 # Reset DB
 if os.environ.get("RESET_DB", "false").lower() == "true":
-    logger.warning("⚠️ [WARNING] DB 초기화를 진행합니다.")
+    '''
+    logger.warning("[WARNING] DB 초기화를 진행합니다.")
+    '''
     resetdb()
 
 # [HYPERPARAMETERS & CONFIGURATION]
@@ -128,7 +132,6 @@ def calculate_grade_from_email(email: Optional[str], current_year: int) -> Optio
     match = re.match(r'^(\d{2})', username)
     if match:
         entry_year_suffix = int(match.group(1))
-        # 2000년대 입학생 기준
         entry_year = 2000 + entry_year_suffix
         grade = current_year - entry_year + 1
         
@@ -188,7 +191,9 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
     try:
         teams_res = await http_client.get(teams_url, headers=headers)
         if teams_res.status_code != 200:
-            logger.error(f"❌ [Graph API Error] 팀 목록 조회 실패 (Status: {teams_res.status_code})")
+            '''
+            logger.error(f"[Graph API Error] 팀 목록 조회 실패 (Status: {teams_res.status_code})")
+            '''
             return []
 
         teams = teams_res.json().get("value", [])
@@ -210,10 +215,14 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
                         "channel_name": ch.get("displayName")
                     })
             else:
-                logger.warning(f"팀 채널 조회 실패 ({ch_res.status_code})")
+                '''
+                logger.warning(f"[Graph API Warning] 팀 채널 조회 실패 ({ch_res.status_code})")
+                '''
 
     except Exception as e:
-        logger.error(f"❌ [Graph API Exception] 팀/채널 탐지 중 에러 발생: {e}",exc_info=True)
+        '''
+        logger.error(f"[Graph API Exception] 팀/채널 탐지 중 에러 발생: {e}",exc_info=True)
+        '''
 
     return discovered_channels
     
@@ -221,13 +230,17 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
 async def send_teams_reply(service_url: str, conversation_id: str, text: str):
     """Bot Framework Connector API를 사용하여 유저 1:1 대화창에 메시지 발송"""
     if not service_url or not conversation_id:
-        logger.warning("⚠️ service_url 또는 conversation_id가 없어 메시지를 전송하지 못했습니다.")
+        '''
+        logger.warning("service_url 또는 conversation_id가 없어 메시지를 전송하지 못했습니다.")
+        '''
         return
 
     # 1. http_client가 생성된 후 토큰 발급 함수 호출
     bot_token = await get_bot_token(http_client)
     if not bot_token:
-        logger.error("❌ Bot Token 발급 실패로 메시지 발송 중단")
+        '''
+        logger.error("Bot Token 발급 실패로 메시지 발송 중단")
+        '''
         return
 
     # 2. 메시지 전송 URL 및 헤더 설정
@@ -248,11 +261,17 @@ async def send_teams_reply(service_url: str, conversation_id: str, text: str):
     try:
         res = await http_client.post(reply_url, headers=headers, json=payload)
         if res.status_code in (200, 201, 202):
-            logger.info(f"✅ [Teams 메시지 발송 성공]")
+            '''
+            logger.info(f"[Teams 메시지 발송 성공]")
+            '''
         else:
-            logger.error(f"❌ [Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
+            '''
+            logger.error(f"[Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
+            '''
     except Exception as e:
-        logger.error(f"❌ [Teams 메시지 발송 예외]: {e}")
+        '''
+        logger.error(f"[Teams 메시지 발송 예외]: {e}")
+        '''
             
 # OpenAI GPT-4o-mini 멀티모달 분석
 async def analyze_message_with_gpt(
@@ -282,8 +301,10 @@ async def analyze_message_with_gpt(
                             b64_img = base64.b64encode(res.content).decode('utf-8')
                             image_base64_list.append(b64_img)
                     except Exception as e:
+                        '''
                         logger.warning(f"이미지 다운로드 실패: {e}")
-
+                        '''
+    
         clean_body = soup.get_text(separator=" ", strip=True)
         
         # BeautifulSoup 트리 명시적 해제
@@ -431,8 +452,9 @@ async def async_single_user(user_id: str, now_utc: datetime):
             user.grade = calculated_grade
             db.commit()
 
-        logger.info(f"👤 [Sync 시작] User({anon_user_id}), 학년: {user_grade}")
-    
+        '''
+        logger.info(f"[Sync 시작] User({anon_user_id}), 학년: {user_grade}")
+        '''
 
         sync_state = db.query(models.UserSyncState).filter(
             models.UserSyncState.user_id == anon_user_id
@@ -464,20 +486,28 @@ async def async_single_user(user_id: str, now_utc: datetime):
                     )
                     # analyze_message_with_gpt 자체가 None을 줬는지 확인
                     if result is None:
-                        logger.warning(f"⚠️ analyze_message_with_gpt 가 None을 반환함 (Msg ID: {msg.get('id')})")
+                        '''
+                        logger.warning(f"analyze_message_with_gpt 가 None을 반환함 (Msg ID: {msg.get('id')})")
+                        '''
                         return None 
                     if result:
                         metadata = msg.get("metadata", {})
                         extracted_url = metadata.get("webUrl") or msg.get("webUrl")
                         result.web_url = extracted_url
                         if extracted_url:
-                            logger.info(f"🔗 [URL 추출 성공] {extracted_url}...")
+                            '''
+                            logger.info(f"[URL 추출 성공] {extracted_url}...")
+                            '''
                         else:
-                            logger.warning(f"⚠️ [URL 추출 실패]")
+                            '''
+                            logger.warning(f"[URL 추출 실패]")
+                            '''
                         await asyncio.sleep(1.5)
                         return result
             except Exception as e:
-                logger.error(f"❌ 메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
+                '''
+                logger.error(f"메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
+                '''
                 return None
 
         # 3. 채널 1개를 처리하는 비동기 함수 (개수 Return 구조)
@@ -499,28 +529,34 @@ async def async_single_user(user_id: str, now_utc: datetime):
 
             if not new_messages:
                 return 0
-
-            logger.info(f"📩 User({anon_user_id}) 채널 신규 메시지 {len(new_messages)}개 발견! 분석 시작...")
-
+            '''
+            logger.info(f"User({anon_user_id}) 채널 신규 메시지 {len(new_messages)}개 발견! 분석 시작...")
+            '''
             msg_tasks = [analyze_single_message(msg) for msg in new_messages]
             
             # return_exceptions=True 적용하여 1개 실패해도 전체가 멈추지 않도록 설정
             extracted_data_list = await asyncio.gather(*msg_tasks, return_exceptions=True)
-
-            logger.info(f"🔍 [디버그] LLM 응답 수신완료: 총 {len(extracted_data_list)}개 객체")
-
+            '''
+            logger.info(f"[디버그] LLM 응답 수신완료: 총 {len(extracted_data_list)}개 객체")
+            '''
             for idx, extracted_data in enumerate(extracted_data_list):
                 if not extracted_data or isinstance(extracted_data, Exception):
-                    logger.info(f"👉 [{idx+1}번 메시지 스킵] LLM 응답 없음 또는 예외 발생: {extracted_data}")
+                    '''
+                    logger.info(f"[{idx+1}번 메시지 스킵] LLM 응답 없음 또는 예외 발생: {extracted_data}")
+                    '''
                     continue
 
                 if not (getattr(extracted_data, 'has_schedule', False) and getattr(extracted_data, 'schedules', [])):
-                    logger.info(f"👉 [{idx+1}번 메시지 탈락] 일정 없음 (has_schedule=False)")
+                    '''
+                    logger.info(f"[{idx+1}번 메시지 탈락] 일정 없음 (has_schedule=False)")
+                    '''
                     continue
 
                 for schedule_item in extracted_data.schedules:
                     if schedule_item.confidence < LLM_CONFIDENCE_THRESHOLD:
-                        logger.info(f"⚠️ [{idx+1}번 메시지 탈락] 신뢰도 미달: {schedule_item.confidence} < {LLM_CONFIDENCE_THRESHOLD}")
+                        '''
+                        logger.info(f"[{idx+1}번 메시지 탈락] 신뢰도 미달: {schedule_item.confidence} < {LLM_CONFIDENCE_THRESHOLD}")
+                        '''
                         continue
 
                     is_target_empty = not schedule_item.target_grades  # 타겟 학년이 명시 안 됨 = 전체 공지
@@ -532,7 +568,9 @@ async def async_single_user(user_id: str, now_utc: datetime):
                     )
 
                     if not is_grade_matching:
-                        logger.info(f"⚠️ [{idx+1}번 메시지 탈락] 학년 불일치: 타겟({schedule_item.target_grades}) vs 유저({user_grade})")
+                        '''
+                        logger.info(f"[{idx+1}번 메시지 탈락] 학년 불일치: 타겟({schedule_item.target_grades}) vs 유저({user_grade})")
+                        '''
                         continue
 
                     schedule_dict = schedule_item.model_dump()
@@ -540,15 +578,21 @@ async def async_single_user(user_id: str, now_utc: datetime):
                     target_web_url = extracted_data.web_url
                     
                     schedule_dict["web_url"] = target_web_url
-                    
-                    logger.info(f"📦 [캘린더 전달 대기] Title: '{schedule_dict.get('title')}' | web_url: {target_web_url}")
+
+                    '''
+                    logger.info(f"[캘린더 전달 대기] Title: '{schedule_dict.get('title')}' | web_url: {target_web_url}")
+                    '''
 
                     try:
                         add_notice_to_calendar(target_email, schedule_dict)
                         channel_written += 1
-                        logger.info(f"✅ [{idx+1}번 메시지 성공] 캘린더 등록 완료")
+                        '''
+                        logger.info(f"[{idx+1}번 메시지 성공] 캘린더 등록 완료")
+                        '''
                     except Exception as cal_err:
-                        logger.error(f"❌ [{idx+1}번 메시지 실패] add_notice_to_calendar 예외: {cal_err}", exc_info=True)
+                        '''
+                        logger.error(f"[{idx+1}번 메시지 실패] add_notice_to_calendar 예외: {cal_err}", exc_info=True)
+                        '''
 
             return channel_written
 
@@ -578,13 +622,16 @@ async def async_single_user(user_id: str, now_utc: datetime):
         db.commit()
         db.refresh(log_entry)
         db.refresh(sync_state)
-
-        logger.info(f"✅ [Sync 완료] User({anon_user_id}): 총 {written_count}건 등록 | Log DB ID: {log_entry.id}")
+        '''
+        logger.info(f"[Sync 완료] User({anon_user_id}): 총 {written_count}건 등록 | Log DB ID: {log_entry.id}")
+        '''
         return written_count
 
     except Exception as e:
         db.rollback()
-        logger.error(f"❌ [Sync Exception 🚨] User({anon_user_id}) 동기화 중 에러 발생: {e}", exc_info=True)
+        '''
+        logger.error(f"[Sync Exception] User({anon_user_id}) 동기화 중 에러 발생: {e}", exc_info=True)
+        '''
         return 0
     finally:
         db.close()
@@ -618,7 +665,9 @@ async def teams_event_webhook(
             last_sync_time = RECENT_SYNC_REQUESTS.get(user_id, 0)
             
             if now - last_sync_time < DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS:
-                logger.info(f"⚠️ [중복 이벤트 감지] User({anon_user_id}) 요청 무시")
+                '''
+                logger.info(f"[중복 이벤트 감지] User({anon_user_id}) 요청 무시")
+                '''
                 return {"status": "ok", "message": "duplicate_event_ignored"}
 
             RECENT_SYNC_REQUESTS[user_id] = now
@@ -628,13 +677,17 @@ async def teams_event_webhook(
             if not existing_user:
                 new_user = models.User(user_id=user_id, conversation_id=user_conversation_id, service_url=service_url)
                 db.add(new_user)
-                logger.info(f"🎉 신규 설치 감지: User({anon_user_id}) 등록 완료")
+                '''
+                logger.info(f"신규 설치 감지: User({anon_user_id}) 등록 완료")
+                '''
             else:
                 if user_conversation_id:
                     existing_user.conversation_id = user_conversation_id
                 if service_url:
                     existing_user.service_url = service_url
-                logger.info(f"🔄 앱 재설치 감지: User({anon_user_id})")
+                '''
+                logger.info(f"앱 재설치 감지: User({anon_user_id})")
+                '''
 
             #sync tracker 업뎃
             initial_sync_time = now_utc - timedelta(days=INITIAL_SYNC_LOOKBACK_DAYS)
@@ -662,7 +715,7 @@ async def teams_event_webhook(
 
             # 웰컴 메시지 전송 (MS 검증 항목: Bot welcome message 통과용)
             welcome_text = (
-                "👋 **CalendarSync 서비스가 정상 연결되었습니다!**\n\n"
+                "**CalendarSync 서비스가 정상 연결되었습니다!**\n\n"
                 "CalendarSync는 백그라운드에서 공지사항 및 포스터를 분석하여 "
                 "캘린더로 자동 동기화해 드립니다. 별도의 명령어를 입력하지 않으셔도 안전하게 작동합니다."
             )
@@ -678,10 +731,10 @@ async def teams_event_webhook(
         service_url = data.get("serviceUrl")
         
         reply_text = (
-            "🤖 **CalendarSync 자동 동기화 엔진 안내**\n\n"
+            "**CalendarSync 자동 동기화 엔진 안내**\n\n"
             "이 봇은 백그라운드 자동 동기화 전용 서비스입니다.\n"
             "채널 공지사항 및 일정은 설정된 주기에 따라 "
-            "자동으로 캘린더에 동기화되니 안심하고 사용해 주세요! 😊"
+            "자동으로 캘린더에 동기화되니 안심하고 사용해 주세요!"
         )
         
         # 봇이 메시지에 대답 (MS 검증 항목: Responding to command Hi 통과용)
@@ -693,8 +746,9 @@ async def auto_polling_sync_job():
     db = SessionLocal()
     try:
         now_utc = datetime.now(timezone.utc)
-        logger.info(f"🔄 백그라운드 폴링 스케줄러 실행 시각: {now_utc.strftime('%H:%M:%S UTC')}")
-
+        '''
+        logger.info(f"백그라운드 폴링 스케줄러 실행 시각: {now_utc.strftime('%H:%M:%S UTC')}")
+        '''
         all_users = db.query(models.User).all() if hasattr(models, 'User') else []
         if not all_users:
             return
@@ -726,20 +780,23 @@ async def auto_polling_sync_job():
 
         # 3. 강제 가비지 컬렉션
         gc.collect()
-        logger.info("🧹 [Polling Cleanup] 백그라운드 메모리 정리 완료")
+        '''
+        logger.info("[Polling Cleanup] 백그라운드 메모리 정리 완료")
+        '''
 
 # 6개월 이상 휴면 계정 자동 파기 (개인정보보호법 준수)
 async def cleanup_inactive_users_job():
     """
-    마지막 동기화(auto_polling_sync) 시점이 6개월 전인 유저 데이터(models.User)를 DB에서 완전 삭제합니다.
-    (CalendarEventLog는 해시 처리되어 있으므로 영구 보존 가능)
+    마지막 동기화(auto_polling_sync) 시점이 6개월 전인 유저 데이터(models.User)를 DB에서 완전 삭제
     """
     db = SessionLocal()
     try:
         now_utc = datetime.now(timezone.utc)
         six_months_ago = now_utc - timedelta(days=180)
-        
-        logger.info("🧹 [개인정보 자동 파기 스케줄러] 휴면 계정 청소 작업 시작...")
+
+        '''
+        logger.info("[개인정보 자동 파기 스케줄러] 휴면 계정 청소 작업 시작...")
+        '''
 
         # 1. 최근 6개월 이내 동기화 로그가 있는 유저 ID 목록 (해시 ID 목록)
         active_anon_user_ids = (
@@ -768,13 +825,19 @@ async def cleanup_inactive_users_job():
 
         if deleted_count > 0:
             db.commit()
-            logger.info(f"🚮 [개인정보 파기 완료] 6개월 이상 휴면 계정 {deleted_count}건 완전 삭제됨")
+            '''
+            logger.info(f"[개인정보 파기 완료] 6개월 이상 휴면 계정 {deleted_count}건 완전 삭제됨")
+            '''
         else:
-            logger.info("✨ [개인정보 파기 완료] 파기 대상 휴면 계정 없음")
+            '''
+            logger.info("[개인정보 파기 완료] 파기 대상 휴면 계정 없음")
+            '''
 
     except Exception as e:
         db.rollback()
-        logger.error(f"❌ [개인정보 파기 에러] 휴면 계정 삭제 중 오류 발생: {e}", exc_info=True)
+        '''
+        logger.error(f"[개인정보 파기 에러] 휴면 계정 삭제 중 오류 발생: {e}", exc_info=True)
+        '''
     finally:
         db.close()
 

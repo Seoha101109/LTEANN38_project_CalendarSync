@@ -11,9 +11,9 @@ load_dotenv()
 TENANT_ID = os.getenv('TENANT_ID')
 CLIENT_ID = os.getenv('CLIENT_ID')
 CLIENT_SECRET = os.getenv('CLIENT_SECRET')
-
+'''
 logger = logging.getLogger("ScheduleBot")
-
+'''
 def get_graph_access_token():
     """MS Graph API 전용 App Access Token을 발급합니다."""
     authority_url = f"https://login.microsoftonline.com/{TENANT_ID}"
@@ -28,7 +28,9 @@ def get_graph_access_token():
     token_result = app.acquire_token_for_client(scopes=scopes)
 
     if "access_token" not in token_result:
+        '''
         logger.error(f"❌ [Token Error] 토큰 발급 실패: {token_result.get('error_description')}")
+        '''
         return None
 
     return token_result["access_token"]
@@ -67,6 +69,7 @@ async def channel_export(TEAM_ID: str, CHANNEL_ID: str, last_sync_time, client: 
             new_messages.append(msg)
             
     except Exception as e:
-        logger.error(f"❌ [Graph API Error] 메시지 조회 실패 ({response.status_code}): {response.text}")
-            
+        '''
+        logger.error(f"[Graph API Error] 메시지 조회 실패 ({response.status_code}): {response.text}")
+        '''
     return new_messages
