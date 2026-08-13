@@ -388,7 +388,7 @@ async def analyze_message_with_gpt(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
             ],
-            seed=42.0,
+            seed=42,
             response_format=ExtractedSchedule,
             temperature=0
         )
