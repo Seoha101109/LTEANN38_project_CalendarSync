@@ -666,17 +666,18 @@ async def teams_event_webhook(
                 logger.info(f"🔄 앱 재설치 감지: User({anon_user_id})")
 
             #sync tracker 업뎃
+            initial_sync_time = now_utc - timedelta(days=INITIAL_SYNC_LOOKBACK_DAYS)
             sync_state = db.query(models.UserSyncState).filter(models.UserSyncState.user_id == anon_user_id).first()
             if not sync_state:
                 # 신규 설치인 경우 생성
                 sync_state = models.UserSyncState(
                     user_id=anon_user_id, 
-                    last_synced_at=now_dt
+                    last_synced_at=initial_sync_time
                 )
                 db.add(sync_state)
             else:
                 # 재설치인 경우 기준 시각 업데이트
-                sync_state.last_synced_at = now_dt
+                sync_state.last_synced_at = initial_sync_time
             
             #로그
             install_log = models.CalendarEventLog(
