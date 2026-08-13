@@ -650,48 +650,52 @@ async def teams_event_webhook(
     activity_type = data.get("type")
     now_utc = datetime.now(timezone.utc)
     
+    from_user = data.get("from", {})
+    user_id = from_user.get("aadObjectId") or from_user.get("id")
+    user_conversation = data.get("conversation") or {}
+    user_conversation_id = user_conversation.get("id")
+    service_url = data.get("serviceUrl")
+    
+    if user_id:
+        anon_user_id = get_anonymous_id(user_id)
+        now = datetime.now(timezone.utc).timestamp()
+        now_dt = datetime.now(timezone.utc)
+        last_sync_time = RECENT_SYNC_REQUESTS.get(user_id, 0)
+        
+        if now - last_sync_time < DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS:
+            '''
+            logger.info(f"[중복 이벤트 감지] User({anon_user_id}) 요청 무시")
+            '''
+            return {"status": "ok", "message": "duplicate_event_ignored"}
+
+        RECENT_SYNC_REQUESTS[user_id] = now
+        
+        #유저 등록
+        existing_user = db.query(models.User).filter(models.User.user_id == user_id).first()
+        if not existing_user:
+            new_user = models.User(user_id=user_id, conversation_id=user_conversation_id, service_url=service_url)
+            db.add(new_user)
+            '''
+            logger.info(f"신규 설치 감지: User({anon_user_id}) 등록 완료")
+            '''
+        else:
+            if user_conversation_id:
+                existing_user.conversation_id = user_conversation_id
+            if service_url:
+                existing_user.service_url = service_url
+            '''
+            logger.info(f"앱 트리거 감지: User({anon_user_id})")
+            '''
+            
+    db.commit()
+    sync_state = db.query(models.UserSyncState).filter(models.UserSyncState.user_id == anon_user_id).first()
+    initial_sync_time = now_utc - timedelta(days=INITIAL_SYNC_LOOKBACK_DAYS)
+    
+    
     # 1. 봇 설치 / 대화 시작 이벤트 (installationUpdate / conversationUpdate)
     if (activity_type == "installationUpdate" and data.get("action") == "add") or (activity_type == "conversationUpdate" and data.get("membersAdded")):
-        from_user = data.get("from", {})
-        user_id = from_user.get("aadObjectId") or from_user.get("id")
-        user_conversation = data.get("conversation") or {}
-        user_conversation_id = user_conversation.get("id")
-        service_url = data.get("serviceUrl")
-        
         if user_id:
-            anon_user_id = get_anonymous_id(user_id)
-            now = datetime.now(timezone.utc).timestamp()
-            now_dt = datetime.now(timezone.utc)
-            last_sync_time = RECENT_SYNC_REQUESTS.get(user_id, 0)
-            
-            if now - last_sync_time < DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS:
-                '''
-                logger.info(f"[중복 이벤트 감지] User({anon_user_id}) 요청 무시")
-                '''
-                return {"status": "ok", "message": "duplicate_event_ignored"}
-
-            RECENT_SYNC_REQUESTS[user_id] = now
-            
-            #유저 등록
-            existing_user = db.query(models.User).filter(models.User.user_id == user_id).first()
-            if not existing_user:
-                new_user = models.User(user_id=user_id, conversation_id=user_conversation_id, service_url=service_url)
-                db.add(new_user)
-                '''
-                logger.info(f"신규 설치 감지: User({anon_user_id}) 등록 완료")
-                '''
-            else:
-                if user_conversation_id:
-                    existing_user.conversation_id = user_conversation_id
-                if service_url:
-                    existing_user.service_url = service_url
-                '''
-                logger.info(f"앱 재설치 감지: User({anon_user_id})")
-                '''
-
             #sync tracker 업뎃
-            initial_sync_time = now_utc - timedelta(days=INITIAL_SYNC_LOOKBACK_DAYS)
-            sync_state = db.query(models.UserSyncState).filter(models.UserSyncState.user_id == anon_user_id).first()
             if not sync_state:
                 # 신규 설치인 경우 생성
                 sync_state = models.UserSyncState(
@@ -726,19 +730,34 @@ async def teams_event_webhook(
 
     # 2. 일반 텍스트 메시지 수신 (MS 검증 도구의 "Hi" 명령어 응답용)
     elif activity_type == "message":
-        user_conversation = data.get("conversation") or {}
-        user_conversation_id = user_conversation.get("id")
-        service_url = data.get("serviceUrl")
-        
-        reply_text = (
-            "**CalendarSync 자동 동기화 엔진 안내**\n\n"
-            "이 봇은 백그라운드 자동 동기화 전용 서비스입니다.\n"
-            "채널 공지사항 및 일정은 설정된 주기에 따라 "
-            "자동으로 캘린더에 동기화되니 안심하고 사용해 주세요!"
-        )
-        
-        # 봇이 메시지에 대답 (MS 검증 항목: Responding to command Hi 통과용)
-        background_tasks.add_task(send_teams_reply, service_url, user_conversation_id, reply_text)
+        if user_id:
+            if not sync_state:
+                # 트리거 반응
+                sync_state = models.UserSyncState(
+                    user_id=anon_user_id, 
+                    last_synced_at=initial_sync_time
+                )
+                db.add(sync_state)
+            
+            install_log = models.CalendarEventLog(
+                user_id=anon_user_id,
+                change_type="app_triggered",
+                resource_id=data.get("id")
+            )
+            
+            db.add(install_log)
+            
+            db.commit()
+            
+            reply_text = (
+                "**CalendarSync 자동 동기화 엔진 안내**\n\n"
+                "이 봇은 백그라운드 자동 동기화 전용 서비스입니다.\n"
+                "채널 공지사항 및 일정은 설정된 주기에 따라 "
+                "자동으로 캘린더에 동기화되니 안심하고 사용해 주세요!"
+            )
+            
+            # 봇이 메시지에 대답 (MS 검증 항목: Responding to command Hi 통과용)
+            background_tasks.add_task(send_teams_reply, service_url, user_conversation_id, reply_text)
 
     return {"status": "ok"}
 
