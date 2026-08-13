@@ -27,7 +27,7 @@ async def get_bot_token(http_client: httpx.AsyncClient) -> str | None:
     }
     
     try:
-        response = await safe_http_request(http_client, "POST", url, data=payload, timeout=10.0)
+        response = await safe_http_request(http_client, "POST", url, data=payload)
         
         if response.status_code == 200:
             return response.json().get('access_token')

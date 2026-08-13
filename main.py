@@ -64,12 +64,6 @@ RECENT_SYNC_REQUESTS = TTLCache(
     ttl=DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS
 )
 
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    timeout=60.0,
-    max_retries=1
-    )
-
 job_defaults = {
     'coalesce': False,
     'max_instances': 10,        # 동시에 작업 10개
@@ -386,15 +380,18 @@ async def analyze_message_with_gpt(
             "image_url": {"url": f"data:image/png;base64,{b64_img}", "detail": "auto"}
         })
     
-    completion = await client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ],
-        response_format=ExtractedSchedule,
-        temperature=0
-    )
+    
+    async with AsyncIOScheduler(api_key=os.environ.get("OPENAI_API_KEY"), timeout=60.0, max_retries=1) as client:
+        completion = await client.beta.chat.completions.parse(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            seed=42.0,
+            response_format=ExtractedSchedule,
+            temperature=0
+        )
         
     return completion.choices[0].message.parsed
 
