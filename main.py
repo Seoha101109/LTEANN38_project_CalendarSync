@@ -591,7 +591,16 @@ async def async_single_user(user_id: str, now_utc: datetime):
         db.close()
 
 def sync_single_user(user_id: str, now_utc: datetime):
-    asyncio.run(async_single_user(user_id, now_utc))
+    try:
+        asyncio.run(async_single_user(user_id, now_utc))
+    except Exception as e:
+        logger.error(f"Sync failed for user {user_id}: {e}",extra=True)
+    finally:
+        try:
+            engine.dispose()
+        except Exception:
+            pass
+        gc.collect()
     
 # Teams Webhook Endpoint (대화 및 이벤트 수신)
 @app.post("/api/messages")
