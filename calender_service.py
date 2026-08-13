@@ -40,9 +40,7 @@ def get_access_token():
     return token
 
 
-# =========================================================
-# [새로 추가] 8일 이상 장기 일정 백엔드 분할 함수
-# =========================================================
+# 8일 이상 장기 일정 백엔드 분할 함수
 def process_long_term_schedules(notice_data: dict) -> list[dict]:
     """GPT 추출 결과에서 8일 이상 장기 일정을 [#시작], [#종료] 2개 객체로 분할하여 반환합니다."""
     # 만약 입력이 GPT의 전체 wrapper 객체일 경우(schedules 배열 포함) 처리
@@ -209,9 +207,8 @@ def make_event_body(notice: dict):
 
 
 def add_notice_to_calendar(user_email: str, notice_data: dict) -> bool:
-    """GPT AI에서 추출한 단일 notice 또는 schedules 포함 dict를 받아
-
-    장기 일정 분할 후 지정 유저의 MS 캘린더에 등록합니다.
+    """
+    GPT AI에서 추출한 단일 notice 또는 schedules 포함 dict를 받아 장기 일정 분할 후 지정 유저의 MS 캘린더에 등록합니다.
     """
     access_token = get_access_token()
     if access_token is None:

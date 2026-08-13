@@ -30,9 +30,7 @@ from cachetools import TTLCache
 import gc
 
 
-# ------------------------------------------------------------------
-# 🪵 [LOGGER & ANONYMIZATION]
-# ------------------------------------------------------------------
+# [LOGGER & ANONYMIZATION]
 logger = logging.getLogger("ScheduleBot")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
@@ -42,16 +40,12 @@ def get_anonymous_id(identity_string: Optional[str]) -> str:
         return "anon_unknown"
     return hashlib.sha256(identity_string.encode()).hexdigest()[:8]
 
-# -----------------------------------------------------------------
 # Reset DB
-# -----------------------------------------------------------------
 if os.environ.get("RESET_DB", "false").lower() == "true":
     logger.warning("⚠️ [WARNING] DB 초기화를 진행합니다.")
     resetdb()
 
-# ==============================================================================
-# ⚙️ [HYPERPARAMETERS & CONFIGURATION]
-# ==============================================================================
+# [HYPERPARAMETERS & CONFIGURATION]
 POLLS_PER_HOUR = int(os.getenv("POLLS_PER_HOUR", "6"))
 POLLING_INTERVAL_MINUTES = 60 // POLLS_PER_HOUR
 SCHEDULER_CRON_MINUTES = ",".join(str(i) for i in range(0, 60, POLLING_INTERVAL_MINUTES))
@@ -60,7 +54,6 @@ INITIAL_SYNC_LOOKBACK_DAYS = int(os.getenv("INITIAL_SYNC_LOOKBACK_DAYS", "7"))
 DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS = int(os.getenv("DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS", "30"))
 LLM_CONFIDENCE_THRESHOLD = float(os.getenv("LLM_CONFIDENCE_THRESHOLD", "0.7"))
 DEFAULT_USER_GRADE = int(os.getenv("DEFAULT_USER_GRADE", "1"))
-# ==============================================================================
 
 load_dotenv()
 database.Base.metadata.create_all(bind=engine)
@@ -113,7 +106,7 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
 
-    yield  # <-- 서버가 정상 구동되는 시점
+    yield  # 서버가 정상 구동되는 시점
 
     scheduler.shutdown()
     await http_client.aclose()
@@ -122,9 +115,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Teams Calendar Auto-Polling & Extract API", lifespan=lifespan)
 
-# ------------------------------------------------------------------
-# [Helper] 이메일 앞 2자리 추출을 통한 학년 자동 계산 함수
-# ------------------------------------------------------------------
+# 이메일 앞 2자리 추출을 통한 학년 자동 계산 함수
 def calculate_grade_from_email(email: Optional[str], current_year: int) -> Optional[int]:
     """
     이메일 아이디의 앞 2자리 숫자를 입학 연도로 판단하여 학년을 계산합니다.
@@ -137,18 +128,16 @@ def calculate_grade_from_email(email: Optional[str], current_year: int) -> Optio
     match = re.match(r'^(\d{2})', username)
     if match:
         entry_year_suffix = int(match.group(1))
-        # 2000년대 입학생 기준 (필요시 1900년대 처리 추가 가능)
+        # 2000년대 입학생 기준
         entry_year = 2000 + entry_year_suffix
         grade = current_year - entry_year + 1
         
-        # 정상적인 학년 범주(1~6학년)에 있는 경우만 반환
+        # 정상적인 학년 범주(1~3학년)에 있는 경우만 반환
         if 1 <= grade <= 3:
             return grade
     return None
 
-# ------------------------------------------------------------------
-# [Pydantic Schemas] OpenAI Structured Output용 구조체
-# ------------------------------------------------------------------
+# OpenAI Structured Output용 구조체
 class ScheduleItem(BaseModel):
     title: str = Field(description="일정 제목")
     start_time: str = Field(description="시작 시간 (ISO 8601 포맷)")
@@ -190,9 +179,7 @@ class ExtractedSchedule(BaseModel):
     )
     web_url: Optional[str] = None
 
-# ------------------------------------------------------------------
 # [Graph API Helper]
-# ------------------------------------------------------------------
 async def get_user_channels_from_graph(user_id: str, access_token: str):
     headers = {"Authorization": f"Bearer {access_token}"}
     discovered_channels = []
@@ -230,16 +217,12 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
 
     return discovered_channels
     
-    
-# ------------------------------------------------------------------
-# [Bot Framework] Teams 1:1 대화창 메시지 발송 헬퍼
-# ------------------------------------------------------------------
+# Teams 1:1 대화창 메시지 발송 헬퍼
 async def send_teams_reply(service_url: str, conversation_id: str, text: str):
     """Bot Framework Connector API를 사용하여 유저 1:1 대화창에 메시지 발송"""
     if not service_url or not conversation_id:
         logger.warning("⚠️ service_url 또는 conversation_id가 없어 메시지를 전송하지 못했습니다.")
         return
-
 
     # 1. http_client가 생성된 후 토큰 발급 함수 호출
     bot_token = await get_bot_token(http_client)
@@ -271,9 +254,7 @@ async def send_teams_reply(service_url: str, conversation_id: str, text: str):
     except Exception as e:
         logger.error(f"❌ [Teams 메시지 발송 예외]: {e}")
             
-# ------------------------------------------------------------------
-# [AI Helper Function] OpenAI GPT-4o-mini 멀티모달 분석
-# ------------------------------------------------------------------
+# OpenAI GPT-4o-mini 멀티모달 분석
 async def analyze_message_with_gpt(
     message_payload: dict, 
     graph_access_token: str = None, 
@@ -419,10 +400,7 @@ async def analyze_message_with_gpt(
         
     return completion.choices[0].message.parsed
 
-
-# ------------------------------------------------------------------
-# [User Sync Logic] 유저 동기화 & 학년 동적 필터링 적용
-# ------------------------------------------------------------------
+# 유저 동기화 & 학년 동적 필터링 적용
 async def async_single_user(user_id: str, now_utc: datetime):
     db = SessionLocal()
     anon_user_id = get_anonymous_id(user_id)
@@ -484,7 +462,7 @@ async def async_single_user(user_id: str, now_utc: datetime):
                         graph_access_token=access_token,
                         target_user_name=target_user_name
                     )
-                    # 💡 [체크포인트 1] analyze_message_with_gpt 자체가 None을 줬는지 확인
+                    # analyze_message_with_gpt 자체가 None을 줬는지 확인
                     if result is None:
                         logger.warning(f"⚠️ analyze_message_with_gpt 가 None을 반환함 (Msg ID: {msg.get('id')})")
                         return None 
@@ -502,11 +480,11 @@ async def async_single_user(user_id: str, now_utc: datetime):
                 logger.error(f"❌ 메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
                 return None
 
-        # 3. 채널 1개를 처리하는 비동기 함수 (개수 Return 구조로 변경)
+        # 3. 채널 1개를 처리하는 비동기 함수 (개수 Return 구조)
         async def process_channel(ch) -> int:
             channel_written = 0
             
-            # 🚨 [수정 1] 동기 함수를 안전하게 비동기 스레드로 실행하여 이벤트 루프 차단 방지
+            # 동기 함수를 안전하게 비동기 스레드로 실행하여 이벤트 루프 차단 방지
             raw_messages = await channel_export(ch["team_id"], ch["channel_id"], last_sync_time, http_client, access_token)
             if not raw_messages:
                 return 0
@@ -526,13 +504,12 @@ async def async_single_user(user_id: str, now_utc: datetime):
 
             msg_tasks = [analyze_single_message(msg) for msg in new_messages]
             
-            # 🚨 [수정 2] return_exceptions=True 적용하여 1개 실패해도 전체가 멈추지 않도록 설정
+            # return_exceptions=True 적용하여 1개 실패해도 전체가 멈추지 않도록 설정
             extracted_data_list = await asyncio.gather(*msg_tasks, return_exceptions=True)
 
             logger.info(f"🔍 [디버그] LLM 응답 수신완료: 총 {len(extracted_data_list)}개 객체")
 
             for idx, extracted_data in enumerate(extracted_data_list):
-                # 🚨 [수정 3] debug -> info로 변경하여 강제 출력
                 if not extracted_data or isinstance(extracted_data, Exception):
                     logger.info(f"👉 [{idx+1}번 메시지 스킵] LLM 응답 없음 또는 예외 발생: {extracted_data}")
                     continue
@@ -575,9 +552,7 @@ async def async_single_user(user_id: str, now_utc: datetime):
 
             return channel_written
 
-        # ------------------------------------------------------------------
         # 4. 메인 실행부: 결과 안전하게 합산
-        # ------------------------------------------------------------------
         channel_tasks = [process_channel(ch) for ch in user_channels]
         results = await asyncio.gather(*channel_tasks, return_exceptions=True)
 
@@ -617,9 +592,7 @@ async def async_single_user(user_id: str, now_utc: datetime):
 def sync_single_user(user_id: str, now_utc: datetime):
     asyncio.run(async_single_user(user_id, now_utc))
     
-# ------------------------------------------------------------------
-# [FastAPI Router] Teams Webhook Endpoint (대화 및 이벤트 수신)
-# ------------------------------------------------------------------
+# Teams Webhook Endpoint (대화 및 이벤트 수신)
 @app.post("/api/messages")
 async def teams_event_webhook(
     request: Request, 
@@ -630,9 +603,7 @@ async def teams_event_webhook(
     activity_type = data.get("type")
     now_utc = datetime.now(timezone.utc)
     
-    # ------------------------------------------------------------------
     # 1. 봇 설치 / 대화 시작 이벤트 (installationUpdate / conversationUpdate)
-    # ------------------------------------------------------------------
     if (activity_type == "installationUpdate" and data.get("action") == "add") or (activity_type == "conversationUpdate" and data.get("membersAdded")):
         from_user = data.get("from", {})
         user_id = from_user.get("aadObjectId") or from_user.get("id")
@@ -700,9 +671,7 @@ async def teams_event_webhook(
             # 백그라운드 동기화 수행
             background_tasks.add_task(sync_single_user, user_id, now_utc)
 
-    # ------------------------------------------------------------------
     # 2. 일반 텍스트 메시지 수신 (MS 검증 도구의 "Hi" 명령어 응답용)
-    # ------------------------------------------------------------------
     elif activity_type == "message":
         user_conversation = data.get("conversation") or {}
         user_conversation_id = user_conversation.get("id")
@@ -759,9 +728,7 @@ async def auto_polling_sync_job():
         gc.collect()
         logger.info("🧹 [Polling Cleanup] 백그라운드 메모리 정리 완료")
 
-# ------------------------------------------------------------------
-# [Cron Job] 6개월 이상 휴면 계정 자동 파기 (개인정보보호법 준수)
-# ------------------------------------------------------------------
+# 6개월 이상 휴면 계정 자동 파기 (개인정보보호법 준수)
 async def cleanup_inactive_users_job():
     """
     마지막 동기화(auto_polling_sync) 시점이 6개월 전인 유저 데이터(models.User)를 DB에서 완전 삭제합니다.
