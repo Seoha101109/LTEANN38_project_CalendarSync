@@ -261,25 +261,25 @@ async def analyze_message_with_gpt(
 
     if content_type == "html" and raw_content:
         soup = BeautifulSoup(raw_content, "html.parser")
-        
-        if graph_access_token:
-            img_tags = soup.find_all("img")
-            headers = {"Authorization": f"Bearer {graph_access_token}"}
-            for img in img_tags:
-                img_url = img.get("src")
-                if img_url and "hostedContents" in img_url:
-                    try:
-                        res = await safe_http_request(http_client, "GET", img_url, headers=headers, follow_redirects=True)
-                        if res.status_code == 200:
-                            b64_img = base64.b64encode(res.content).decode('utf-8')
-                            image_base64_list.append(b64_img)
-                    except Exception as e:
-                        logger.warning(f"이미지 다운로드 실패: {e}",exc_info=True)
-    
-        clean_body = soup.get_text(separator=" ", strip=True)
-        
-        # BeautifulSoup 트리 명시적 해제
-        soup.decompose() 
+        try:
+            if graph_access_token:
+                img_tags = soup.find_all("img")
+                headers = {"Authorization": f"Bearer {graph_access_token}"}
+                for img in img_tags:
+                    img_url = img.get("src")
+                    if img_url and "hostedContents" in img_url:
+                        try:
+                            res = await safe_http_request(http_client, "GET", img_url, headers=headers, follow_redirects=True)
+                            if res.status_code == 200:
+                                b64_img = base64.b64encode(res.content).decode('utf-8')
+                                image_base64_list.append(b64_img)
+                        except Exception as e:
+                            logger.warning(f"이미지 다운로드 실패: {e}",exc_info=True)
+
+            clean_body = soup.get_text(separator=" ", strip=True)
+        finally:
+            # BeautifulSoup 트리 명시적 해제
+            soup.decompose() 
         del soup
     else:
         clean_body = raw_content
@@ -381,7 +381,7 @@ async def analyze_message_with_gpt(
         })
     
     
-    async with AsyncIOScheduler(api_key=os.environ.get("OPENAI_API_KEY"), timeout=60.0, max_retries=1) as client:
+    async with AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=60.0, max_retries=1) as client:
         completion = await client.beta.chat.completions.parse(
             model="gpt-4o-mini",
             messages=[
