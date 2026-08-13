@@ -32,7 +32,7 @@ async def get_bot_token(http_client: httpx.AsyncClient) -> str | None:
         if response.status_code == 200:
             return response.json().get('access_token')
         else:
-            logger.error(f"[Bot Token Error]: {e}",exc_info=True)
+            logger.error(f"[Bot Token Error] Status: {response.status_code}, Body: {response.text}")
             return None
             
     except Exception as e:

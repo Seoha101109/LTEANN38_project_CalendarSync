@@ -8,6 +8,7 @@ async def safe_http_request(
     method: str, 
     url: str, 
     headers: dict = None, 
+    data: dict = None,
     json: dict = None, 
     params: dict = None, 
     follow_redirects: bool = True
@@ -18,7 +19,7 @@ async def safe_http_request(
     if http_client is not None and not http_client.is_closed:
         try:
             return await http_client.request(
-                method=method, url=url, headers=headers, json=json, params=params, follow_redirects=follow_redirects
+                method=method, url=url, headers=headers, data=data, json=json, params=params, follow_redirects=follow_redirects
             )
         except RuntimeError as e:
             logger.warning(f"임시 HTTP 클라이언트로 전환: {e}",exc_info=True)
@@ -31,5 +32,5 @@ async def safe_http_request(
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as temp_client:
         
         return await temp_client.request(
-            method=method, url=url, headers=headers, json=json, params=params, follow_redirects=follow_redirects
+            method=method, url=url, headers=headers, data=data, json=json, params=params, follow_redirects=follow_redirects
         )
