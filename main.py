@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import asyncio
-from local.anouncement import get_bot_token
+from bot_token import get_bot_token
 
 from contextlib import asynccontextmanager
 import httpx
