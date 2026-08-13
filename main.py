@@ -31,10 +31,8 @@ import gc
 
 
 # [LOGGER & ANONYMIZATION]
-'''
 logger = logging.getLogger("ScheduleBot")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-'''
 
 def get_anonymous_id(identity_string: Optional[str]) -> str:
     """실명, 유저 ID, 이메일 등을 SHA-256 해시 기반 8자리 익명 ID로 변환 (로그 개인정보 보호)"""
@@ -44,9 +42,7 @@ def get_anonymous_id(identity_string: Optional[str]) -> str:
 
 # Reset DB
 if os.environ.get("RESET_DB", "false").lower() == "true":
-    '''
     logger.warning("[WARNING] DB 초기화를 진행합니다.")
-    '''
     resetdb()
 
 # [HYPERPARAMETERS & CONFIGURATION]
@@ -191,9 +187,7 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
     try:
         teams_res = await http_client.get(teams_url, headers=headers)
         if teams_res.status_code != 200:
-            '''
             logger.error(f"[Graph API Error] 팀 목록 조회 실패 (Status: {teams_res.status_code})")
-            '''
             return []
 
         teams = teams_res.json().get("value", [])
@@ -215,14 +209,10 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
                         "channel_name": ch.get("displayName")
                     })
             else:
-                '''
                 logger.warning(f"[Graph API Warning] 팀 채널 조회 실패 ({ch_res.status_code})")
-                '''
 
     except Exception as e:
-        '''
         logger.error(f"[Graph API Exception] 팀/채널 탐지 중 에러 발생: {e}",exc_info=True)
-        '''
 
     return discovered_channels
     
@@ -230,17 +220,13 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
 async def send_teams_reply(service_url: str, conversation_id: str, text: str):
     """Bot Framework Connector API를 사용하여 유저 1:1 대화창에 메시지 발송"""
     if not service_url or not conversation_id:
-        '''
         logger.warning("service_url 또는 conversation_id가 없어 메시지를 전송하지 못했습니다.")
-        '''
         return
 
     # 1. http_client가 생성된 후 토큰 발급 함수 호출
     bot_token = await get_bot_token(http_client)
     if not bot_token:
-        '''
         logger.error("Bot Token 발급 실패로 메시지 발송 중단")
-        '''
         return
 
     # 2. 메시지 전송 URL 및 헤더 설정
@@ -260,18 +246,10 @@ async def send_teams_reply(service_url: str, conversation_id: str, text: str):
     # 3. 메시지 발송
     try:
         res = await http_client.post(reply_url, headers=headers, json=payload)
-        if res.status_code in (200, 201, 202):
-            '''
-            logger.info(f"[Teams 메시지 발송 성공]")
-            '''
-        else:
-            '''
+        if res.status_code not in (200, 201, 202):
             logger.error(f"[Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
-            '''
     except Exception as e:
-        '''
-        logger.error(f"[Teams 메시지 발송 예외]: {e}")
-        '''
+        logger.error(f"[Teams 메시지 발송 예외]: {e}",exc_info=True)
             
 # OpenAI GPT-4o-mini 멀티모달 분석
 async def analyze_message_with_gpt(
@@ -301,9 +279,7 @@ async def analyze_message_with_gpt(
                             b64_img = base64.b64encode(res.content).decode('utf-8')
                             image_base64_list.append(b64_img)
                     except Exception as e:
-                        '''
-                        logger.warning(f"이미지 다운로드 실패: {e}")
-                        '''
+                        logger.warning(f"이미지 다운로드 실패: {e}",exc_info=True)
     
         clean_body = soup.get_text(separator=" ", strip=True)
         
@@ -452,9 +428,7 @@ async def async_single_user(user_id: str, now_utc: datetime):
             user.grade = calculated_grade
             db.commit()
 
-        '''
         logger.info(f"[Sync 시작] User({anon_user_id}), 학년: {user_grade}")
-        '''
 
         sync_state = db.query(models.UserSyncState).filter(
             models.UserSyncState.user_id == anon_user_id
@@ -483,31 +457,15 @@ async def async_single_user(user_id: str, now_utc: datetime):
                         message_payload=msg,
                         graph_access_token=access_token,
                         target_user_name=target_user_name
-                    )
-                    # analyze_message_with_gpt 자체가 None을 줬는지 확인
-                    if result is None:
-                        '''
-                        logger.warning(f"analyze_message_with_gpt 가 None을 반환함 (Msg ID: {msg.get('id')})")
-                        '''
-                        return None 
+                    ) 
                     if result:
                         metadata = msg.get("metadata", {})
                         extracted_url = metadata.get("webUrl") or msg.get("webUrl")
                         result.web_url = extracted_url
-                        if extracted_url:
-                            '''
-                            logger.info(f"[URL 추출 성공] {extracted_url}...")
-                            '''
-                        else:
-                            '''
-                            logger.warning(f"[URL 추출 실패]")
-                            '''
                         await asyncio.sleep(1.5)
                         return result
             except Exception as e:
-                '''
-                logger.error(f"메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}")
-                '''
+                logger.error(f"메시지 분석 최종 실패 (ID: {msg.get('id')}): {e}",exc_info=True)
                 return None
 
         # 3. 채널 1개를 처리하는 비동기 함수 (개수 Return 구조)
@@ -590,9 +548,7 @@ async def async_single_user(user_id: str, now_utc: datetime):
                         logger.info(f"[{idx+1}번 메시지 성공] 캘린더 등록 완료")
                         '''
                     except Exception as cal_err:
-                        '''
-                        logger.error(f"[{idx+1}번 메시지 실패] add_notice_to_calendar 예외: {cal_err}", exc_info=True)
-                        '''
+                        logger.error(f"[메시지 등록 실패] add_notice_to_calendar 예외: {cal_err}", exc_info=True)
 
             return channel_written
 
@@ -629,9 +585,7 @@ async def async_single_user(user_id: str, now_utc: datetime):
 
     except Exception as e:
         db.rollback()
-        '''
         logger.error(f"[Sync Exception] User({anon_user_id}) 동기화 중 에러 발생: {e}", exc_info=True)
-        '''
         return 0
     finally:
         db.close()
@@ -675,17 +629,13 @@ async def teams_event_webhook(
         if not existing_user:
             new_user = models.User(user_id=user_id, conversation_id=user_conversation_id, service_url=service_url)
             db.add(new_user)
-            '''
             logger.info(f"신규 설치 감지: User({anon_user_id}) 등록 완료")
-            '''
         else:
             if user_conversation_id:
                 existing_user.conversation_id = user_conversation_id
             if service_url:
                 existing_user.service_url = service_url
-            '''
             logger.info(f"앱 트리거 감지: User({anon_user_id})")
-            '''
             
     db.commit()
     sync_state = db.query(models.UserSyncState).filter(models.UserSyncState.user_id == anon_user_id).first()
@@ -765,9 +715,7 @@ async def auto_polling_sync_job():
     db = SessionLocal()
     try:
         now_utc = datetime.now(timezone.utc)
-        '''
         logger.info(f"백그라운드 폴링 스케줄러 실행 시각: {now_utc.strftime('%H:%M:%S UTC')}")
-        '''
         all_users = db.query(models.User).all() if hasattr(models, 'User') else []
         if not all_users:
             return
@@ -799,9 +747,7 @@ async def auto_polling_sync_job():
 
         # 3. 강제 가비지 컬렉션
         gc.collect()
-        '''
         logger.info("[Polling Cleanup] 백그라운드 메모리 정리 완료")
-        '''
 
 # 6개월 이상 휴면 계정 자동 파기 (개인정보보호법 준수)
 async def cleanup_inactive_users_job():
@@ -813,9 +759,7 @@ async def cleanup_inactive_users_job():
         now_utc = datetime.now(timezone.utc)
         six_months_ago = now_utc - timedelta(days=180)
 
-        '''
         logger.info("[개인정보 자동 파기 스케줄러] 휴면 계정 청소 작업 시작...")
-        '''
 
         # 1. 최근 6개월 이내 동기화 로그가 있는 유저 ID 목록 (해시 ID 목록)
         active_anon_user_ids = (
@@ -844,9 +788,7 @@ async def cleanup_inactive_users_job():
 
         if deleted_count > 0:
             db.commit()
-            '''
             logger.info(f"[개인정보 파기 완료] 6개월 이상 휴면 계정 {deleted_count}건 완전 삭제됨")
-            '''
         else:
             '''
             logger.info("[개인정보 파기 완료] 파기 대상 휴면 계정 없음")
@@ -854,9 +796,7 @@ async def cleanup_inactive_users_job():
 
     except Exception as e:
         db.rollback()
-        '''
         logger.error(f"[개인정보 파기 에러] 휴면 계정 삭제 중 오류 발생: {e}", exc_info=True)
-        '''
     finally:
         db.close()
 
