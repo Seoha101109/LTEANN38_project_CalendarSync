@@ -28,6 +28,7 @@ from Channel_Export import channel_export, get_graph_access_token
 from reset import resetdb
 from cachetools import TTLCache
 import gc
+from temp_http_client import safe_http_request
 
 
 # [LOGGER & ANONYMIZATION]
@@ -185,7 +186,7 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
 
     teams_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/joinedTeams"
     try:
-        teams_res = await http_client.get(teams_url, headers=headers)
+        teams_res = await safe_http_request(http_client, "GET", teams_url, headers=headers)
         if teams_res.status_code != 200:
             logger.error(f"[Graph API Error] 팀 목록 조회 실패 (Status: {teams_res.status_code})")
             return []
@@ -197,7 +198,7 @@ async def get_user_channels_from_graph(user_id: str, access_token: str):
             team_name = team.get("displayName", "알 수 없는 팀")
             
             channels_url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels"
-            ch_res = await http_client.get(channels_url, headers=headers)
+            ch_res = await safe_http_request(http_client, "GET", channels_url, headers=headers)
 
             if ch_res.status_code == 200:
                 channels = ch_res.json().get("value", [])
@@ -245,7 +246,7 @@ async def send_teams_reply(service_url: str, conversation_id: str, text: str):
 
     # 3. 메시지 발송
     try:
-        res = await http_client.post(reply_url, headers=headers, json=payload)
+        res = await safe_http_request(http_client, "POST", reply_url, headers=headers, json=payload)
         if res.status_code not in (200, 201, 202):
             logger.error(f"[Teams 메시지 발송 실패] Status: {res.status_code}, Body: {res.text}")
     except Exception as e:
@@ -274,7 +275,7 @@ async def analyze_message_with_gpt(
                 img_url = img.get("src")
                 if img_url and "hostedContents" in img_url:
                     try:
-                        res = await http_client.get(img_url, headers=headers, follow_redirects=True)
+                        res = await safe_http_request(http_client, "GET", img_url, headers=headers, follow_redirects=True)
                         if res.status_code == 200:
                             b64_img = base64.b64encode(res.content).decode('utf-8')
                             image_base64_list.append(b64_img)
@@ -412,7 +413,9 @@ async def async_single_user(user_id: str, now_utc: datetime):
         target_user_name = None
         
         # MS Graph API로부터 유저 메일 및 이름 조회
-        profile_res = await http_client.get(
+        profile_res = await safe_http_request(
+            http_client,
+            "GET",
             f"https://graph.microsoft.com/v1.0/users/{user_id}",
             headers={"Authorization": f"Bearer {access_token}"}
         )

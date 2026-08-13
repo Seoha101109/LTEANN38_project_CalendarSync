@@ -12,12 +12,11 @@ load_dotenv()
 TENANT_ID = os.environ.get("TENANT_ID")
 CLIENT_ID = os.environ.get("CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
-TIME_ZONE = "Korea Standard Time"
 
-'''
+TIME_ZONE = "Korea Standard Time"
 logger = logging.getLogger("ScheduleBot")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-'''
+
 def get_access_token():
     if not TENANT_ID or not CLIENT_ID or not CLIENT_SECRET:
         '''
@@ -38,10 +37,8 @@ def get_access_token():
     )
 
     token = result.get("access_token")
-    '''
     if not token:
-        logger.error(f"[토큰 발급 실패] {result.get('error_description')}")
-    '''
+        logger.error(f"[토큰 발급 실패] {result.get('error_description')}",exc_info=True)
     return token
 
 
@@ -253,12 +250,10 @@ def add_notice_to_calendar(user_email: str, notice_data: dict) -> bool:
             logger.info(f"[Calendar API 성공]")
             '''
         else:
-            '''
             logger.error(
                 f"[Calendar API 실패 - HTTP {response.status_code}]"
                 f" {response.text}"
             )
-            '''
             success_all = False
 
     return success_all
