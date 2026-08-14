@@ -743,14 +743,10 @@ async def auto_polling_sync_job():
         db.close()
         
         # 2. 대용량 참조 변수 제거
-        if 'all_users' in locals():
-            del all_users
-        if target_users:
-            del target_users
-        if tasks:
-            del tasks
-        if 'results' in locals():
-            del results
+        local_vars = locals()
+        for var_name in ['all_users', 'target_users', 'tasks', 'results']:
+            if var_name in local_vars:
+                del local_vars[var_name]
 
         # 3. 강제 가비지 컬렉션
         gc.collect()
@@ -782,10 +778,14 @@ async def cleanup_inactive_users_job():
         active_anon_set = {row[0] for row in active_anon_user_ids}
 
         # 2. 전체 유저 중 6개월간 활동 기록이 없는 유저 선별 후 삭제
-        all_users = db.query(models.User).all()
+        old_users = (
+            db.query(models.User)
+            .filter(models.User.created_at <= six_months_ago)
+            .all()
+        )
         deleted_count = 0
 
-        for user in all_users:
+        for user in old_users:
             user_anon_id = get_anonymous_id(user.user_id)
             
             # 활성 유저 목록에 해시 ID가 없다면 6개월 이상 휴면 유저로 판단
