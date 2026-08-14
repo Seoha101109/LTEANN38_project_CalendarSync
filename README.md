@@ -8,5 +8,5 @@ Microsoft Teams 채널 공지사항(텍스트/이미지)을 AI가 분석하여 �
 - **Authentication**: MSAL (Microsoft Authentication Library)
 
 ## 약관 및 방침
-- [개인정보 처리방침](PRIVACY.md)
-- [서비스 이용약관](TERMS.md)
+- [개인정보 처리방침](./docs/privacy.md)
+- [서비스 이용약관](./docs/terms.md)
