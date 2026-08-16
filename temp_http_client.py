@@ -1,5 +1,6 @@
 import httpx
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,14 @@ async def safe_http_request(
 ):
     #method는 GET, POST, PATCH, DELETE
     method = method.upper()
-
-    if http_client is not None and not http_client.is_closed:
+    current_loop = asyncio.get_running_loop()
+    
+    is_same_loop = (
+        http_client is not None 
+        and hasattr(http_client, "_transport") 
+        and getattr(http_client._transport, "_loop", None) == current_loop
+    )
+    if is_same_loop and not http_client.is_closed:
         try:
             return await http_client.request(
                 method=method, url=url, headers=headers, data=data, json=json, params=params, follow_redirects=follow_redirects

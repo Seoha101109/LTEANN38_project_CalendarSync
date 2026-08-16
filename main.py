@@ -407,6 +407,12 @@ async def analyze_message_with_gpt(
 async def async_single_user(user_id: str, now_utc: datetime):
     db = SessionLocal()
     anon_user_id = get_anonymous_id(user_id)
+    
+    user_channels = None
+    channel_tasks = None
+    results = None
+    profile_res = None
+    
     try:
         user = db.query(models.User).filter(models.User.user_id == user_id).first()
         if not user:
@@ -428,6 +434,7 @@ async def async_single_user(user_id: str, now_utc: datetime):
             pdata = profile_res.json()
             target_email = pdata.get("mail") or pdata.get("userPrincipalName")
             target_user_name = pdata.get("displayName")
+            pdata=None
 
         calculated_grade = calculate_grade_from_email(target_email, now_utc.year)
         user_grade = getattr(user, "grade", None) or calculated_grade or DEFAULT_USER_GRADE
@@ -493,6 +500,8 @@ async def async_single_user(user_id: str, now_utc: datetime):
                     if msg_time > last_sync_time:
                         new_messages.append(msg)
 
+            raw_messages = None
+            
             if not new_messages:
                 return 0
             '''
@@ -502,6 +511,10 @@ async def async_single_user(user_id: str, now_utc: datetime):
             
             # return_exceptions=True 적용하여 1개 실패해도 전체가 멈추지 않도록 설정
             extracted_data_list = await asyncio.gather(*msg_tasks, return_exceptions=True)
+            
+            new_messages = None
+            msg_tasks = None
+            
             '''
             logger.info(f"[디버그] LLM 응답 수신완료: 총 {len(extracted_data_list)}개 객체")
             '''
@@ -557,7 +570,7 @@ async def async_single_user(user_id: str, now_utc: datetime):
                         '''
                     except Exception as cal_err:
                         logger.error(f"[메시지 등록 실패] add_notice_to_calendar 예외: {cal_err}", exc_info=True)
-
+            extracted_data_list = None
             return channel_written
 
         # 4. 메인 실행부: 결과 안전하게 합산
@@ -594,6 +607,10 @@ async def async_single_user(user_id: str, now_utc: datetime):
         logger.error(f"[Sync Exception] User({anon_user_id}) 동기화 중 에러 발생: {e}", exc_info=True)
         return 0
     finally:
+        user_channels = None
+        channel_tasks = None
+        results = None
+        profile_res = None
         db.close()
 
 def sync_single_user(user_id: str, now_utc: datetime):
@@ -601,12 +618,6 @@ def sync_single_user(user_id: str, now_utc: datetime):
         asyncio.run(async_single_user(user_id, now_utc))
     except Exception as e:
         logger.error(f"Sync failed for user {user_id}: {e}",extra=True)
-    finally:
-        try:
-            engine.dispose()
-        except Exception:
-            pass
-        gc.collect()
     
 # Teams Webhook Endpoint (대화 및 이벤트 수신)
 @app.post("/api/messages")
@@ -751,13 +762,10 @@ async def auto_polling_sync_job():
         db.close()
         
         # 2. 대용량 참조 변수 제거
-        local_vars = locals()
-        for var_name in ['all_users', 'target_users', 'tasks', 'results']:
-            if var_name in local_vars:
-                del local_vars[var_name]
+        all_users = None
+        target_users = None
+        results = None
 
-        # 3. 강제 가비지 컬렉션
-        gc.collect()
         logger.info("[Polling Cleanup] 백그라운드 메모리 정리 완료")
 
 # 6개월 이상 휴면 계정 자동 파기 (개인정보보호법 준수)
