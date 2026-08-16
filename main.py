@@ -47,6 +47,7 @@ if os.environ.get("RESET_DB", "false").lower() == "true":
     logger.warning("[WARNING] DB 초기화를 진행합니다.")
     resetdb()
 
+load_dotenv()
 # [HYPERPARAMETERS & CONFIGURATION]
 POLLS_PER_HOUR = int(os.getenv("POLLS_PER_HOUR", "6"))
 POLLING_INTERVAL_MINUTES = 60 // POLLS_PER_HOUR
@@ -56,8 +57,9 @@ INITIAL_SYNC_LOOKBACK_DAYS = int(os.getenv("INITIAL_SYNC_LOOKBACK_DAYS", "7"))
 DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS = int(os.getenv("DUPLICATE_WEBHOOK_DEBOUNCE_SECONDS", "30"))
 LLM_CONFIDENCE_THRESHOLD = float(os.getenv("LLM_CONFIDENCE_THRESHOLD", "0.7"))
 DEFAULT_USER_GRADE = int(os.getenv("DEFAULT_USER_GRADE", "1"))
+GRADE_OVERRIDES_ENV = os.getenv("GRADE_OVERRIDES", "{}")
+GRADE_OVERRIDES = json.loads(GRADE_OVERRIDES_ENV)
 
-load_dotenv()
 database.Base.metadata.create_all(bind=engine)
 
 RECENT_SYNC_REQUESTS = TTLCache(
@@ -102,7 +104,7 @@ async def lifespan(app: FastAPI):
     )
     scheduler.add_job(
         run_daily_schedule_job,
-        trigger=CronTrigger(hour=7, minute=05, timezone="Asia/Seoul"), # 원하는 시/분 설정
+        trigger=CronTrigger(hour=7, minute=5, timezone="Asia/Seoul"), # 원하는 시/분 설정
         args=[http_client],
         id="daily_calendar_notification",
         replace_existing=True
@@ -127,7 +129,14 @@ def calculate_grade_from_email(email: Optional[str], current_year: int) -> Optio
     if not email:
         return None
     
-    username = email.split('@')[0]
+    username = email.split('@')[0].strip()
+    if username in GRADE_OVERRIDES:
+        var = GRADE_OVERRIDES[username]
+        return int(var) if var is not None else None
+    
+    if not username.isdigit() or len(username) != 5:
+        return None
+
     match = re.match(r'^(\d{2})', username)
     if match:
         entry_year_suffix = int(match.group(1))
