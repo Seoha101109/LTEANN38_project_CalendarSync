@@ -89,7 +89,7 @@ async def send_teams_message(http_client: httpx.AsyncClient, conversation_id: st
     payload = {"type": "message", "text": message_text}
 
     try:
-        await safe_http_request(http_client, "POST", endpoint, json=payload, headers=headers, timeout=10.0)
+        await safe_http_request(http_client, "POST", endpoint, json=payload, headers=headers)
     except Exception as e:
         logger.error(f"Teams 알림 발송 실패: {e}")
 
