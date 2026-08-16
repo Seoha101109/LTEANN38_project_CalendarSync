@@ -215,7 +215,8 @@ def is_duplicate_event(new_event: dict, existing_events: list) -> bool:
     """
     # 1. 새 일정 데이터 정제
     new_title = new_event.get("subject", "").replace(" ", "").lower()
-    new_start_str = new_event.get("start")  # ISO 포맷 (예: '2026-07-20T08:30:00Z')
+    new_start_info = new_event.get("start", {})
+    new_start_str = new_start_info.get("dateTime") if isinstance(new_start_info, dict) else new_start_info
     
     if not new_start_str:
         return False
