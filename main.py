@@ -658,18 +658,19 @@ async def teams_event_webhook(
 
         RECENT_SYNC_REQUESTS[user_id] = now
         
-        #유저 등록
-        existing_user = db.query(models.User).filter(models.User.user_id == user_id).first()
-        if not existing_user:
-            new_user = models.User(user_id=user_id, conversation_id=user_conversation_id, service_url=service_url)
-            db.add(new_user)
-            logger.info(f"신규 설치 감지: User({anon_user_id}) 등록 완료")
-        else:
-            if user_conversation_id:
-                existing_user.conversation_id = user_conversation_id
-            if service_url:
-                existing_user.service_url = service_url
-            logger.info(f"앱 트리거 감지: User({anon_user_id})")
+        if (activity_type == "installationUpdate" and data.get("action") == "add") or (activity_type == "conversationUpdate" and data.get("membersAdded")) or (activity_type == "message"):
+            #유저 등록
+            existing_user = db.query(models.User).filter(models.User.user_id == user_id).first()
+            if not existing_user:
+                new_user = models.User(user_id=user_id, conversation_id=user_conversation_id, service_url=service_url)
+                db.add(new_user)
+                logger.info(f"신규 설치 감지: User({anon_user_id}) 등록 완료")
+            else:
+                if user_conversation_id:
+                    existing_user.conversation_id = user_conversation_id
+                if service_url:
+                    existing_user.service_url = service_url
+                logger.info(f"앱 트리거 감지: User({anon_user_id})")
             
     db.commit()
     sync_state = db.query(models.UserSyncState).filter(models.UserSyncState.user_id == anon_user_id).first()
