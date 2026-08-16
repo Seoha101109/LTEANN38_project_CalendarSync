@@ -10,6 +10,7 @@ from database import SessionLocal
 import models
 from bot_token import get_bot_token
 from temp_http_client import safe_http_request  # 기존 작성한 HTTP 안전 요청 함수
+from Channel_Export import get_graph_access_token
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -19,7 +20,9 @@ def get_anonymous_id(identity_string: Optional[str]) -> str:
     if not identity_string:
         return "anon_unknown"
     return hashlib.sha256(identity_string.encode()).hexdigest()[:8]
-
+TENANT_ID = os.getenv('TENANT_ID')
+CLIENT_ID = os.getenv('CLIENT_ID')
+CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 SERVICE_URL = os.environ.get("SERVICE_URL")
 
 # --- 1. 유저별 오늘 일정 조회 (MS Graph API) ---
@@ -94,7 +97,7 @@ async def send_teams_message(http_client: httpx.AsyncClient, conversation_id: st
 # --- 3. 유저 1명 단위 비동기 처리 파이프라인 ---
 async def process_user_daily_notification(http_client: httpx.AsyncClient, user, bot_token: str):
     conv_id = getattr(user, 'conversation_id', None)
-    access_token = getattr(user, 'access_token', None) # DB에 저장된 유저 토큰
+    access_token = get_graph_access_token() # DB에 저장된 유저 토큰
     
     user_id = getattr(user, 'user_id', None)
 
