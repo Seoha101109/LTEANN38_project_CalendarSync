@@ -690,7 +690,7 @@ async def teams_event_webhook(
                 db.add(sync_state)
             else:
                 # 재설치인 경우 기준 시각 업데이트
-                sync_state.last_synced_at = initial_sync_time
+                latest_sync_time = max(initial_sync_time, sync_state.last_sync_time)
             
             #로그
             install_log = models.CalendarEventLog(
