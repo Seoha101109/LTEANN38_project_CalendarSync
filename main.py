@@ -28,7 +28,6 @@ from calender_service import add_notice_to_calendar
 from Channel_Export import channel_export, get_graph_access_token
 from reset import resetdb
 from cachetools import TTLCache
-import gc
 from temp_http_client import safe_http_request
 from send_anouncement import run_daily_schedule_job
 
@@ -103,7 +102,7 @@ async def lifespan(app: FastAPI):
     )
     scheduler.add_job(
         run_daily_schedule_job,
-        trigger=CronTrigger(hour=7, minute=0, timezone="Asia/Seoul"), # 원하는 시/분 설정
+        trigger=CronTrigger(hour=12, minute=15, timezone="Asia/Seoul"), # 원하는 시/분 설정
         args=[http_client],
         id="daily_calendar_notification",
         replace_existing=True
