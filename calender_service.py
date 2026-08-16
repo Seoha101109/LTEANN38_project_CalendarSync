@@ -205,6 +205,13 @@ def make_event_body(notice: dict):
             "dateTime": end_datetime,
             "timeZone": TIME_ZONE,
         },
+        #calendarsync 식별자
+        "singleValueExtendedProperties": [
+            {
+                "id": "String {fbd4ec16-7f0f-46d2-a9db-f32258a48607} Name CalendarSyncApp",
+                "value": "CalendarSync_2026"
+            }
+        ]
     }
 
     return event
