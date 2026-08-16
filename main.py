@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
 
@@ -29,6 +30,7 @@ from reset import resetdb
 from cachetools import TTLCache
 import gc
 from temp_http_client import safe_http_request
+from send_anouncement import run_daily_schedule_job
 
 
 # [LOGGER & ANONYMIZATION]
@@ -98,6 +100,13 @@ async def lifespan(app: FastAPI):
         minute=0,
         misfire_grace_time=3600,
         coalesce=True
+    )
+    scheduler.add_job(
+        run_daily_schedule_job,
+        trigger=CronTrigger(hour=7, minute=0, timezone="Asia/Seoul"), # 원하는 시/분 설정
+        args=[http_client],
+        id="daily_calendar_notification",
+        replace_existing=True
     )
     scheduler.start()
 
@@ -319,7 +328,7 @@ async def analyze_message_with_gpt(
     system_prompt = '''너는 메신저 메시지와 이미지를 분석하여 사용자가 챙겨야 할 일정을 정확히 파악하고 extraction 객체 형태로 반환하는 AI 도우미야.
 
 [0. 일정 추출 대상 (has_schedule = True)]
-아래 항목 중 구체적인 연/월/일 마감/기간이 명시되어 있을 때만 `has_schedule = True`로 설정:
+본문(또는 이미지 내 텍스트)에 구체적인 연/월/일(또는 시간) 마감/기간이 '명적으로 명시'되어 있을 때만 `has_schedule = True`로 설정:
   1) 과제/보고서 제출 마감, 시험, 특강/세미나, 팀 프로젝트 미팅
   2) 각종 프로그램/행사/아카데미 신청 및 모집 기간
   3) 구글 폼/설문/투표 마감, 개인 메시지(DM)/메일 응답 마감일
@@ -328,8 +337,8 @@ async def analyze_message_with_gpt(
 
 [1. 예외 대상 (has_schedule = False)]
 아래에 해당하면 키워드가 있더라도 무조건 `has_schedule = False` 처리:
-- "추후 안내", "추후 공지" 등 구체적인 날짜나 마감 일시가 명시되지 않은 글.
-- 본문에 언급되지 않은 대상을 AI가 스스로 추론하여 만들어낸 일정.
+1) 본문 텍스트에 구체적인 날짜나 마감 일시가 명시되지 않은 글 (예: "추후 공지", "일정 별도 안내").
+2) 메시지 작성일자(created_at)는 오직 "내일", "이번주 금요일" 등 '상대적 표현'을 해석하는 기준일 뿐이며, 구체적 행사 날짜가 본문에 언급되어 있지 않다면 절대로 작성일자(created_at)를 행사 날짜로 임의 할당하거나 추론하지 말 것.
 
 [2. 다중 일정 및 ALL-SCAN 처리]
 - 하나의 메시지에 여러 일정(예: 1차 제출, 2차 제출)이 있거나, 번호(1., 2...)로 나열된 경우 누락 없이 각각 독립된 객체로 분리하여 `schedules` 배열에 담아줘.
@@ -348,7 +357,6 @@ async def analyze_message_with_gpt(
 [5. 세부 추출 규칙]
 - 상대적인 날짜 표현("내일까지", "이번주 금요일")을 해석할 때만 작성일(created_at)을 기준점으로 사용해줘.
 - 시간을 특정할 수 없는 당일 일정은 하루 종일(All-day) 이벤트로 간주.
-- 작성일을 날짜 계산에 사용하는 유일한 경우는 상대적인 날짜 표현이 있을 경우이며, 절대로 작성일을 시작일 또는 종료일로 판단해선 안돼.
 - target_grades: 본문에 명시된 숫자만 입력 (고등학교 1, 2, 3학년 등). 명시되지 않았거나 전교생 대상인 경우 빈 리스트 `[]` 처리.
 
 [추가 보완 지침]

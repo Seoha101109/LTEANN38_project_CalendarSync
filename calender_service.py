@@ -209,6 +209,61 @@ def make_event_body(notice: dict):
 
     return event
 
+def is_duplicate_event(new_event: dict, existing_events: list) -> bool:
+    """
+    새로 등록하려는 일정(new_event)이 기존 일정 리스트(existing_events)에 이미 존재하는지 검증합니다.
+    """
+    # 1. 새 일정 데이터 정제
+    new_title = new_event.get("subject", "").replace(" ", "").lower()
+    new_start_str = new_event.get("start")  # ISO 포맷 (예: '2026-07-20T08:30:00Z')
+    
+    if not new_start_str:
+        return False
+        
+    new_start_dt = datetime.fromisoformat(new_start_str.replace("Z", "+00:00"))
+
+    for exist in existing_events:
+        # 기존 일정 데이터 정제
+        exist_title = exist.get("subject", "").replace(" ", "").lower()
+        exist_start_info = exist.get("start", {}).get("dateTime")
+        
+        if not exist_start_info:
+            continue
+            
+        exist_start_dt = datetime.fromisoformat(exist_start_info.replace("Z", "+00:00"))
+
+        # 조건 1: 제목 검사 (완전 일치 또는 한쪽이 다른 쪽에 포함)
+        title_matched = (new_title in exist_title) or (exist_title in new_title)
+
+        # 조건 2: 시작 시간 차이가 30분 이내인지 검사
+        time_diff = abs((new_start_dt - exist_start_dt).total_seconds()) / 60.0  # 분 단위
+        time_matched = time_diff <= 30
+
+        # 제목이 유사하고 시간차이가 30분 이내라면 중복으로 판단!
+        if title_matched and time_matched:
+            return True
+
+    return False
+
+def get_existing_events_for_day(user_email: str, headers: dict, target_datetime_str: str) -> list:
+    """
+    등록하려는 날짜 당일의 기존 일정들을 API로 미리 끌어옵니다.
+    """
+    try:
+        date_part = target_datetime_str.split("T")[0]
+        start_of_day = f"{date_part}T00:00:00Z"
+        end_of_day = f"{date_part}T23:59:59Z"
+
+        url = (
+            f"https://graph.microsoft.com/v1.0/users/{user_email}/calendarView"
+            f"?startDateTime={start_of_day}&endDateTime={end_of_day}"
+        )
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            return res.json().get("value", [])
+    except Exception as e:
+        logger.error(f"[calendarView 조회 실패] {e}")
+    return []
 
 def add_notice_to_calendar(user_email: str, notice_data: dict) -> bool:
     """
@@ -240,7 +295,15 @@ def add_notice_to_calendar(user_email: str, notice_data: dict) -> bool:
             '''
             success_all = False
             continue
+        # 1. 해당 날짜의 기존 일정 미리 끌어오기 (중복 검사용)
+        start_datetime = event_body.get("start", {}).get("dateTime", "")
+        existing_events = get_existing_events_for_day(user_email, headers, start_datetime)
 
+        # 2. 🔥 중복 검사 실행
+        if is_duplicate_event(event_body, existing_events):
+            logger.info(f"[Calendar 스킵 - 중복 일정 감지] {event_body.get('subject')}")
+            continue  # 중복이면 생성 요청을 보내지 않고 다음으로 건너뜁니다.
+        
         url = f"https://graph.microsoft.com/v1.0/users/{user_email}/events"
 
         response = requests.post(url, headers=headers, json=event_body)
